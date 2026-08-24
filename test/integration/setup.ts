@@ -64,7 +64,7 @@ export async function startServer(
     stats: new Stats(),
     provider: byokProvider,
   };
-  const app = await createServer(ctx, provider);
+  const app = await createServer(ctx, provider, "integration-token");
   const address = await app.listen({ port: 0, host: "127.0.0.1" });
   return { app, baseUrl: address, ctx };
 }
@@ -76,7 +76,10 @@ export async function postJSON(
 ): Promise<{ status: number; body: string; contentType: string | null }> {
   const res = await fetch(`${baseUrl}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      authorization: "Bearer integration-token",
+    },
     body: JSON.stringify(body),
   });
   return {

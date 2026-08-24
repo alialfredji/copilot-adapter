@@ -56,20 +56,15 @@ describe("resolveModel", () => {
     });
   });
 
-  it("falls back to same family when version not available", () => {
-    // Opus 4.6 doesn't exist in Copilot, should fall back to 4.5
+  it("does not silently downgrade an unavailable model", () => {
     expect(resolveModel("claude-opus-4-6", copilotModels)).toEqual({
-      ok: true,
-      model: "claude-opus-4.5",
+      ok: false,
     });
   });
 
-  it("falls back to closest in family when multiple candidates", () => {
-    // claude-sonnet-4-7 doesn't exist and the family has 4 and 4.5, so
-    // "claude-sonnet-4-5" wins because it shares a longer prefix than "claude-sonnet-4"
+  it("does not choose a nearby version from the same family", () => {
     expect(resolveModel("claude-sonnet-4-7", copilotModels)).toEqual({
-      ok: true,
-      model: "claude-sonnet-4.5",
+      ok: false,
     });
   });
 
@@ -106,12 +101,9 @@ describe("resolveModel", () => {
     });
   });
 
-  it("falls back within o-series family", () => {
-    // o3 isn't available but o3-mini is, and they share the "o" family
-    // with o3-mini winning on longest prefix
+  it("does not invent aliases for non-Claude models", () => {
     expect(resolveModel("o3", copilotModels)).toEqual({
-      ok: true,
-      model: "o3-mini",
+      ok: false,
     });
   });
 

@@ -5,6 +5,9 @@ import {
   type ModelInfo,
   type GetAuthStatusResponse,
 } from "@github/copilot-sdk";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 import type { LogLevel, Logger } from "#logger.js";
 
 export interface CopilotServiceOptions {
@@ -16,6 +19,23 @@ export interface CopilotServiceOptions {
 
 const MODEL_CACHE_TTL_MS = 30 * 60 * 1000;
 
+function resolveGitHubToken(explicit?: string): string | undefined {
+  const environmentToken =
+    explicit ??
+    process.env.COPILOT_GITHUB_TOKEN ??
+    process.env.GH_TOKEN ??
+    process.env.GITHUB_TOKEN;
+  if (environmentToken) return environmentToken;
+
+  const result = spawnSync("gh", ["auth", "token"], {
+    encoding: "utf8",
+    timeout: 3000,
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  const token = result.status === 0 ? result.stdout.trim() : "";
+  return token || undefined;
+}
+
 export class CopilotService {
   readonly cwd: string;
   private client: CopilotClient;
@@ -26,7 +46,10 @@ export class CopilotService {
   constructor(options: CopilotServiceOptions = {}) {
     this.cwd = options.cwd ?? process.cwd();
     this.logger = options.logger;
+    const gitHubToken = resolveGitHubToken(options.githubToken);
     this.client = new CopilotClient({
+      mode: "empty",
+      baseDirectory: process.env.COPILOT_HOME ?? join(homedir(), ".copilot"),
       logLevel: options.logLevel ?? "error",
       workingDirectory: this.cwd,
       env: Object.fromEntries(
@@ -34,8 +57,8 @@ export class CopilotService {
           (e): e is [string, string] => e[1] != null,
         ),
       ),
-      ...(options.githubToken && {
-        gitHubToken: options.githubToken,
+      ...(gitHubToken && {
+        gitHubToken,
         useLoggedInUser: false,
       }),
     });
@@ -46,7 +69,16 @@ export class CopilotService {
   }
 
   async stop(): Promise<void> {
-    await this.client.stop();
+    const errors = await this.client.stop();
+    if (errors.length > 0) {
+      this.logger?.warn(
+        `Copilot SDK reported ${String(errors.length)} shutdown error(s)`,
+      );
+    }
+  }
+
+  async forceStop(): Promise<void> {
+    await this.client.forceStop();
   }
 
   async getAuthStatus(): Promise<GetAuthStatusResponse> {

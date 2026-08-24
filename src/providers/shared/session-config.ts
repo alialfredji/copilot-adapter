@@ -2,8 +2,9 @@ import type {
   SessionConfig,
   MCPServerConfig,
   PermissionRequestResult,
-  SystemMessageReplaceConfig,
+  SystemMessageAppendConfig,
 } from "@github/copilot-sdk";
+import { BuiltInTools, ToolSet } from "@github/copilot-sdk";
 
 type Hooks = NonNullable<SessionConfig["hooks"]>;
 type PreToolUseResult = NonNullable<
@@ -14,6 +15,7 @@ type ErrorResult = NonNullable<
 >;
 import type { ServerConfig, ApprovalRule, ReasoningEffort } from "#config.js";
 import type { Logger } from "#logger.js";
+import { isIsolatedTool, validateToolArguments } from "#security.js";
 
 type SdkReasoningEffort = NonNullable<SessionConfig["reasoningEffort"]>;
 
@@ -33,6 +35,14 @@ export interface SessionConfigOptions {
   provider?: SessionConfig["provider"];
 }
 
+function buildAvailableTools(config: ServerConfig): string[] {
+  const tools = new ToolSet()
+    .addBuiltIn(BuiltInTools.Isolated)
+    .addBuiltIn(config.allowedCliTools);
+  if (Object.keys(config.mcpServers).length > 0) tools.addMcp("*");
+  return tools.toArray();
+}
+
 function isApproved(rule: ApprovalRule, kind: string): boolean {
   if (typeof rule === "boolean") return rule;
   return rule.some((k) => k === kind);
@@ -48,19 +58,24 @@ export function createSessionConfig({
   provider,
 }: SessionConfigOptions): SessionConfig {
   return {
-    clientName: "copilot-sdk-proxy",
+    clientName: "copilot-harness-adapter",
     model,
     streaming: true,
     includeSubAgentStreamingEvents: false,
-    infiniteSessions: { enabled: true },
     workingDirectory: cwd ?? process.cwd(),
+    enableSessionTelemetry: false,
+    enableConfigDiscovery: false,
+    enableSkills: false,
+    enableHostGitOperations: false,
+    enableSessionStore: false,
+    memory: { enabled: false },
     ...(provider && { provider }),
 
     ...(systemMessage && {
       systemMessage: {
-        mode: "replace",
+        mode: "append",
         content: systemMessage,
-      } satisfies SystemMessageReplaceConfig,
+      } satisfies SystemMessageAppendConfig,
     }),
 
     mcpServers: Object.fromEntries(
@@ -70,9 +85,7 @@ export function createSessionConfig({
       ]),
     ),
 
-    ...(config.allowedCliTools.length > 0 && {
-      availableTools: config.allowedCliTools,
-    }),
+    availableTools: buildAvailableTools(config),
     ...(config.reasoningEffort &&
       supportsReasoningEffort && {
         reasoningEffort: toSdkEffort(config.reasoningEffort),
@@ -116,14 +129,25 @@ export function createSessionConfig({
     },
 
     hooks: {
-      onPreToolUse: (input) => {
+      onPreToolUse: async (input) => {
         const toolName = input.toolName;
 
         if (
+          isIsolatedTool(toolName) ||
           config.allowedCliTools.includes("*") ||
           config.allowedCliTools.includes(toolName)
         ) {
-          logger.debug(`Tool "${toolName}": allowed (CLI)`);
+          try {
+            if (!isIsolatedTool(toolName)) {
+              await validateToolArguments(cwd ?? process.cwd(), input.toolArgs);
+            }
+          } catch (error) {
+            logger.warn(
+              `Tool "${toolName}" denied: ${error instanceof Error ? error.message : String(error)}`,
+            );
+            return { permissionDecision: "deny" } satisfies PreToolUseResult;
+          }
+          logger.debug(`Tool "${toolName}": allowed`);
           return Promise.resolve({
             permissionDecision: "allow",
           } satisfies PreToolUseResult);
@@ -146,7 +170,7 @@ export function createSessionConfig({
       },
 
       onPostToolUse: (input) => {
-        logger.debug(`Tool executed: ${input.toolName}`, input.toolArgs);
+        logger.debug(`Tool executed: ${input.toolName}`);
       },
 
       onErrorOccurred: (input) => {

@@ -28,13 +28,13 @@ describe("resolveConfigPath", () => {
   it("returns project config when projectCwd is set and file exists", () => {
     mockExistsSync.mockReturnValue(true);
     const result = resolveConfigPath("/project", "/cwd", "/default");
-    expect(result).toBe("/project/config.json5");
+    expect(result).toBe("/project/.copilot-harness.json5");
   });
 
   it("falls back to processCwd config when project config does not exist", () => {
     mockExistsSync.mockReturnValueOnce(false).mockReturnValueOnce(true);
     const result = resolveConfigPath("/project", "/cwd", "/default");
-    expect(result).toBe("/cwd/config.json5");
+    expect(result).toBe("/cwd/.copilot-harness.json5");
   });
 
   it("falls back to defaultPath when neither project nor local config exists", () => {
@@ -68,8 +68,8 @@ describe("loadConfig", () => {
       logger,
       "openai",
     );
-    expect(config.allowedCliTools).toEqual(["*"]);
-    expect(config.autoApprovePermissions).toBe(true);
+    expect(config.allowedCliTools).toEqual([]);
+    expect(config.autoApprovePermissions).toBe(false);
     expect(config.bodyLimit).toBe(10 * 1024 * 1024);
   });
 
@@ -189,7 +189,7 @@ describe("loadAllProviderConfigs", () => {
 
     const result = await loadAllProviderConfigs("/missing.json5", logger);
     for (const name of ["openai", "claude", "codex"] as const) {
-      expect(result.providers[name].allowedCliTools).toEqual(["*"]);
+      expect(result.providers[name].allowedCliTools).toEqual([]);
       expect(result.providers[name].mcpServers).toEqual({});
     }
     expect(result.shared.mcpServers).toEqual({});

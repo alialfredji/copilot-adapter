@@ -12,6 +12,9 @@ const noopProvider: Provider = {
   register() {},
 };
 
+const TEST_TOKEN = "local-secret";
+const authHeaders = { authorization: `Bearer ${TEST_TOKEN}` };
+
 function createCtx(pingImpl: AppContext["service"]["ping"]): AppContext {
   return {
     service: { ping: pingImpl } as unknown as AppContext["service"],
@@ -39,9 +42,13 @@ describe("GET /health", () => {
     const ctx = createCtx(() =>
       Promise.resolve({ message: "health", timestamp: "1000" }),
     );
-    app = await createServer(ctx, noopProvider);
+    app = await createServer(ctx, noopProvider, TEST_TOKEN);
 
-    const res = await app.inject({ method: "GET", url: "/health" });
+    const res = await app.inject({
+      method: "GET",
+      url: "/health",
+      headers: authHeaders,
+    });
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
@@ -53,9 +60,13 @@ describe("GET /health", () => {
 
   it("returns 503 with error message when ping fails", async () => {
     const ctx = createCtx(() => Promise.reject(new Error("connection lost")));
-    app = await createServer(ctx, noopProvider);
+    app = await createServer(ctx, noopProvider, TEST_TOKEN);
 
-    const res = await app.inject({ method: "GET", url: "/health" });
+    const res = await app.inject({
+      method: "GET",
+      url: "/health",
+      headers: authHeaders,
+    });
 
     expect(res.statusCode).toBe(503);
     expect(res.json()).toEqual({ status: "error", message: "connection lost" });
@@ -64,11 +75,84 @@ describe("GET /health", () => {
   it("returns 503 with fallback message for non-Error throws", async () => {
     // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
     const ctx = createCtx(() => Promise.reject("something"));
-    app = await createServer(ctx, noopProvider);
+    app = await createServer(ctx, noopProvider, TEST_TOKEN);
 
-    const res = await app.inject({ method: "GET", url: "/health" });
+    const res = await app.inject({
+      method: "GET",
+      url: "/health",
+      headers: authHeaders,
+    });
 
     expect(res.statusCode).toBe(503);
     expect(res.json()).toEqual({ status: "error", message: "Unknown error" });
+  });
+
+  it("requires the configured bearer token", async () => {
+    const ctx = createCtx(() =>
+      Promise.resolve({ message: "health", timestamp: "1000" }),
+    );
+    app = await createServer(ctx, noopProvider, TEST_TOKEN);
+
+    const denied = await app.inject({ method: "GET", url: "/health" });
+    const allowed = await app.inject({
+      method: "GET",
+      url: "/health",
+      headers: { authorization: "Bearer local-secret" },
+    });
+
+    expect(denied.statusCode).toBe(401);
+    expect(allowed.statusCode).toBe(200);
+  });
+
+  it("accepts x-api-key for Claude model discovery", async () => {
+    const ctx = createCtx(() =>
+      Promise.resolve({ message: "health", timestamp: "1000" }),
+    );
+    app = await createServer(ctx, noopProvider, TEST_TOKEN);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/health",
+      headers: { "x-api-key": "local-secret" },
+    });
+
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("reloads a rotated token without restarting", async () => {
+    const ctx = createCtx(() =>
+      Promise.resolve({ message: "health", timestamp: "1000" }),
+    );
+    let token = "first-secret";
+    app = await createServer(ctx, noopProvider, () => Promise.resolve(token));
+
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/health",
+          headers: { authorization: "Bearer first-secret" },
+        })
+      ).statusCode,
+    ).toBe(200);
+    token = "second-secret";
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/health",
+          headers: { authorization: "Bearer first-secret" },
+        })
+      ).statusCode,
+    ).toBe(401);
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/health",
+          headers: { "x-api-key": "second-secret" },
+        })
+      ).statusCode,
+    ).toBe(200);
   });
 });

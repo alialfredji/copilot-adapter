@@ -12,21 +12,20 @@
   //     },
   //   },
   // },
-  // Reasoning effort for models that support it.
-  // OpenAI models accept: "low", "medium", "high", "xhigh"
-  // Claude models accept: "low", "medium", "high", "max"
-  claude: { mcpServers: {}, reasoningEffort: "max" },
-  codex: { mcpServers: {}, reasoningEffort: "xhigh" },
-  openai: { mcpServers: {}, reasoningEffort: "xhigh" },
+  // Per-provider MCP servers. Reasoning effort is intentionally omitted so
+  // the selected model can use its own supported default.
+  claude: { mcpServers: {} },
+  codex: { mcpServers: {} },
+  openai: { mcpServers: {} },
 
-  // Built-in Copilot CLI tools allowlist. Use ["*"] to allow all, [] to deny
-  // all, or list specific tools like ["glob", "grep", "bash"].
-  allowedCliTools: ["*"],
+  // The CLI --policy flag supplies the built-in tool allowlist. This remains
+  // empty so direct library use is safe by default.
+  allowedCliTools: [],
 
   // Auto-approve permission requests. Set to true to approve all, false to deny
   // all, or pass an array of specific kinds:
   // ["read", "write", "shell", "mcp", "url", "custom-tool", "memory", "hook"].
-  autoApprovePermissions: true,
+  autoApprovePermissions: false,
 
   // Maximum request body size in MiB.
   bodyLimit: 10,

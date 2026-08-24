@@ -16,6 +16,9 @@ import {
   resolveModelForSession,
 } from "#providers/shared/model-resolver.js";
 import { createSessionConfig } from "#providers/shared/session-config.js";
+import { sendSSEComment } from "#providers/shared/streaming-utils.js";
+
+const KEEPALIVE_INTERVAL_MS = 15_000;
 
 export interface BaseHandlerOptions<TReq> {
   beforeHandler?: (req: TReq, reply: FastifyReply) => Promise<boolean>;
@@ -227,6 +230,13 @@ export function runHandlerPipeline<
       return;
     }
 
+    const keepalive = setInterval(() => {
+      if (!reply.raw.writableEnded && reply.raw.headersSent) {
+        sendSSEComment(reply);
+      }
+    }, KEEPALIVE_INTERVAL_MS);
+    keepalive.unref();
+
     try {
       if (pipeline.handleStreaming) {
         await pipeline.handleStreaming({
@@ -271,6 +281,7 @@ export function runHandlerPipeline<
         );
       }
     } finally {
+      clearInterval(keepalive);
       conversation.sessionActive = false;
     }
   };

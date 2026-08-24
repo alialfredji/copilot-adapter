@@ -1,205 +1,170 @@
-# copilot-sdk-proxy [![npm version](https://img.shields.io/npm/v/copilot-sdk-proxy)](https://www.npmjs.com/package/copilot-sdk-proxy) [![npm downloads](https://img.shields.io/npm/dm/copilot-sdk-proxy?label=npm)](https://www.npmjs.com/package/copilot-sdk-proxy)
+# Copilot Harness Adapter
 
-A proxy server that wraps the [GitHub Copilot SDK](https://github.com/github/copilot-sdk) and exposes it as an OpenAI, Anthropic, or Codex (Responses) compatible API. Any client that speaks one of these APIs can talk to it.
+Local GitHub Copilot Business adapter for **Codex** and **Claude Code**. It translates Codex's Responses API and Claude's Messages API into official `@github/copilot-sdk` sessions.
 
-This is the shared core that [xcode-copilot-server](https://github.com/theblixguy/xcode-copilot-server) builds on. It also works standalone as a general-purpose Copilot proxy. Request validation uses [llm-schemas](https://github.com/theblixguy/llm-schemas) and integration tests run against [llm-mock-server](https://github.com/theblixguy/llm-mock-server).
+This is a reviewable MVP. It binds only to `127.0.0.1`, requires a local bearer token, runs the Copilot SDK in `mode: "empty"`, and defaults to read-only workspace tools.
 
-## Quick start
+## Prerequisites
 
-You need [Node.js](https://nodejs.org) 22 or later and a GitHub Copilot subscription.
+- Node.js 22.12+
+- GitHub Copilot CLI with the organization's CLI policy enabled
+- A Copilot Business/Enterprise seat
+- Auth through `gh auth login`, `GH_TOKEN`, `GITHUB_TOKEN`, or a fine-grained `github_pat_` with **Copilot Requests**
 
-**1. Authenticate** with one of these (you only need one):
+Classic `ghp_` tokens are not supported by the Copilot SDK. `copilot login` alone may use keychain storage that SDK empty mode cannot read; `gh auth login` is the most reliable local setup.
 
-```bash
-copilot login # Copilot CLI
-gh auth login # GitHub CLI
-```
-
-Or set a `GITHUB_TOKEN` environment variable with a valid fine-grained Copilot access token.
-
-**2. Install:**
+## Install
 
 ```bash
-npm install -g copilot-sdk-proxy
+npm install
+npm run build
+npm link
+copilot-harness doctor
 ```
 
-**3. Start the server:**
+The adapter creates a 0600 local credential at `~/.copilot-harness/token`. It is not a GitHub token and only authenticates requests to localhost.
+
+## Start and inspect
+
+From the repository the model may access:
 
 ```bash
-copilot-proxy
+copilot-harness start --cwd "$PWD" --port 4141 --policy read-only
 ```
 
-By default the server starts on port 8080 in auto mode, which registers all three providers at once. Point your client at `http://localhost:8080` and it will proxy requests through the Copilot SDK.
-
-## Providers
-
-The server runs in **auto mode** by default, which registers all three providers simultaneously. You can also run a single provider with `--provider`:
-
-| Provider | Flag | Routes |
-|----------|------|--------|
-| All (auto) | _(default)_ | All routes below |
-| OpenAI `/chat/completions` | `--provider openai` | `GET /v1/models`, `POST /v1/chat/completions` |
-| Anthropic `/messages` | `--provider claude` | `POST /v1/messages`, `POST /v1/messages/count_tokens` |
-| OpenAI `/responses` | `--provider codex` | `POST /v1/responses` |
+In another terminal:
 
 ```bash
-copilot-proxy                          # auto mode: all providers
-copilot-proxy --provider claude        # single provider
-copilot-proxy --provider codex --port 9090
+copilot-harness status --models
 ```
 
-All three stream responses as server-sent events. The Copilot SDK handles tool execution internally through its built-in CLI tools.
+Choose an exact returned model ID. The adapter never silently substitutes a nearby model.
 
-### Feature support
+`copilot-harness token --rotate` is picked up live by the adapter and helper-based clients. Rerun VS Code setup and replace Claude Desktop's static API key afterward.
 
-| Feature | `/chat/completions` | `/messages` | `/responses` |
-|---------|---------------------|-------------|--------------|
-| Streaming (SSE) | Yes | Yes | Yes |
-| Tool execution | Yes | Yes | Yes |
-| Reasoning/thinking tokens | No (hidden by API) | Yes (thinking blocks) | Yes (reasoning summary) |
-| Token counting | No | Yes (`POST /v1/messages/count_tokens`) | No |
-| Model listing | Yes (`GET /v1/models`) | No | No |
+Policies:
 
-A `GET /health` endpoint is available on all providers. It pings the Copilot SDK backend and returns `{"status":"ok","message":"...","timestamp":...,"protocolVersion":...}` on success or a 503 with `{"status":"error","message":"..."}` on failure.
+- `chat`: no workspace tools
+- `read-only`: `view`, `glob`, and `grep` — default
+- `workspace-write`: adds `edit` and `create`; no shell
+- `unsafe-shell`: adds `bash`; explicit opt-in because the Copilot SDK owns execution
+- `unsafe-all`: also enables configured MCP servers; grants their external capabilities
 
-## Configuration
-
-The server reads a `config.json5` file. It ships with a default one, but you can point to your own with `--config`:
+## Codex CLI
 
 ```bash
-copilot-proxy --config ./my-config.json5
+copilot-harness setup codex --scope profile --model <model-id>
+codex --profile copilot
 ```
 
-The config file uses [JSON5](https://json5.org/) format:
-
-```json5
-{
-  // Per-provider MCP servers. Each provider gets its own set.
-  // openai: {
-  //   mcpServers: {
-  //     filesystem: {
-  //       type: "local",
-  //       command: "npx",
-  //       args: ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/projects"],
-  //     },
-  //   },
-  // },
-  openai: { mcpServers: {} },
-  claude: { mcpServers: {} },
-  codex: { mcpServers: {} },
-
-  // Built-in Copilot CLI tools allowlist. Use ["*"] to allow all, [] to deny
-  // all, or list specific tools like ["glob", "grep", "bash"].
-  allowedCliTools: ["*"],
-
-  // Maximum request body size in MiB.
-  bodyLimit: 10,
-
-  // Server-level request timeout in minutes. 0: disabled.
-  requestTimeout: 0,
-
-  // Reasoning effort for models that support it: "low", "medium", "high", "xhigh".
-  // reasoningEffort: null,
-
-  // Auto-approve permission requests. Set to true to approve all, false to deny
-  // all, or pass an array of specific kinds:
-  // ["read", "write", "shell", "mcp", "url", "custom-tool", "memory", "hook"].
-  autoApprovePermissions: true,
-}
-```
-
-In auto mode, all three provider sections are active. In single-provider mode (`--provider`), only the specified provider's MCP servers are used. Settings like `allowedCliTools`, `bodyLimit`, and `autoApprovePermissions` are shared across all providers.
-
-## CLI reference
-
-```text
-copilot-proxy [options]
-
-Options:
-  -p, --port <number>            Port to listen on (default: 8080)
-  --provider <name>              API format: openai, claude, codex (default: auto: all providers)
-  -l, --log-level <level>        Log verbosity (default: info)
-  -c, --config <path>            Path to config file
-  --cwd <path>                   Working directory for Copilot sessions
-  --idle-timeout <minutes>       Shut down after N minutes of inactivity (default: 0, disabled)
-  -v, --version                  Output the version number
-  -h, --help                     Show help
-```
-
-## Architecture
-
-See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the codebase is structured, the request lifecycle, streaming protocol translation, and conversation management.
-
-See [TESTING.md](docs/TESTING.md) for how the integration tests work using llm-mock-server and the SDK's BYOK provider.
-
-## Development
+This writes `~/.codex/copilot.config.toml`. To undo it:
 
 ```bash
-npm run build # Compile TypeScript
-npm run dev # Run from source with tsx
-npm test # Run tests
-npm run fmt # Format with oxfmt
-npm run lint # Lint with oxlint
-npm run typecheck # Type-check without emitting
+copilot-harness setup codex --scope profile --remove
 ```
 
-## Using as a library
+## Codex Desktop
 
-The package exports its internals so you can build on top of it. This is how [`xcode-copilot-server`](https://github.com/theblixguy/xcode-copilot-server) adds Xcode-specific things like tool bridging and settings patching.
-
-```typescript
-import {
-  CopilotService,
-  createServer,
-  Logger,
-  Stats,
-  providers,
-} from "copilot-sdk-proxy";
-
-const logger = new Logger("info");
-const service = new CopilotService({ logLevel: "info", logger });
-await service.start();
-
-const stats = new Stats();
-const app = await createServer(
-  { service, logger, config, port: 8080, stats },
-  providers.claude,
-);
-await app.listen({ port: 8080, host: "127.0.0.1" });
+```bash
+copilot-harness setup codex --scope global --model <model-id>
 ```
 
-Some of the main exports:
+Restart Codex Desktop, select a **local** task, and open the same folder passed to `--cwd`. The setup command updates `~/.codex/config.toml` and creates an exact reversible backup.
 
-- `CopilotService` -- manages the SDK lifecycle and authentication
-- `createServer` -- builds a Fastify server with provider-specific routes
-- `providers` -- registry of `openai`, `claude`, and `codex` with their schemas, prompt formatters, and streaming handlers
-- `createAutoProvider` -- registers all three providers on a single server (auto mode)
-- `loadAllProviderConfigs` -- loads per-provider configs from a single config file
-- `createSessionConfig` -- builds SDK session configs (MCP servers, permissions, reasoning effort)
-- `resolveModelForSession` -- model resolution with family-based fallback
-- `Logger`, `Stats`, `createSpinner`, `printBanner`, `printUsageSummary`
-- Zod schemas: `ChatCompletionRequestSchema`, `AnthropicMessagesRequestSchema`, etc.
+Undo:
 
-## License
+```bash
+copilot-harness setup codex --scope global --remove
+```
 
-MIT License
+Codex cloud tasks cannot reach a localhost adapter.
 
-Copyright (c) 2026 Suyash Srijan
+## Claude Code CLI
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Use an ID containing `claude` or `anthropic`; Claude's gateway discovery filters other IDs.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+```bash
+copilot-harness setup claude-cli --model <claude-model-id>
+claude
+```
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Verify `/status` shows `http://127.0.0.1:4141`, then verify `/model`.
+
+Undo:
+
+```bash
+copilot-harness setup claude-cli --remove
+```
+
+## Claude Code for VS Code
+
+```bash
+copilot-harness setup claude-vscode --model <claude-model-id>
+```
+
+Reload the VS Code window. The installer preserves JSONC comments and unrelated environment variables.
+
+Undo:
+
+```bash
+copilot-harness setup claude-vscode --remove
+```
+
+## Claude Desktop Code tab
+
+```bash
+copilot-harness setup claude-desktop
+copilot-harness token
+```
+
+Then configure:
+
+1. Help → Troubleshooting → Enable Developer Mode.
+2. Developer → Configure Third-Party Inference.
+3. Provider: `Gateway`.
+4. Base URL: `http://127.0.0.1:4141` — no `/v1`.
+5. Credential kind: `Static API key`.
+6. Auth scheme: `Bearer`.
+7. API key: output from `copilot-harness token`.
+
+Gateway Code sessions are local-only; SSH, Remote Control, and cloud execution are unavailable.
+
+## Verify the adapter itself
+
+```bash
+npm run typecheck
+npm test
+npm run build
+```
+
+The deterministic suite covers both protocol translators, authentication, safe policy presets, path and symlink escapes, streaming events, client config merging, and exact rollback. The former upstream localhost-BYOK runtime tests are excluded because SDK 1.0.8 blocks their insecure mock transport; perform the live smoke test below instead.
+
+## Live smoke test
+
+Use a disposable repository and `read-only` first:
+
+```bash
+mkdir /tmp/copilot-harness-smoke
+cd /tmp/copilot-harness-smoke
+git init
+printf 'export const answer = 42;\n' > answer.ts
+copilot-harness start --cwd "$PWD" --policy read-only
+```
+
+From another terminal, run `copilot-harness status --models`, configure one client, and ask it to read `answer.ts` and report the exported value. Then restart with `--policy workspace-write` and ask it to create `result.txt`. Confirm it cannot run shell commands unless restarted with `--policy unsafe-shell`.
+
+Finally, confirm the requests are attributed to the expected Copilot Business user in the organization's usage reporting.
+
+## Security and limitations
+
+- Only localhost is supported; never expose this process with a tunnel.
+- The adapter process is fixed to one workspace. Use another port/process for a concurrent project.
+- Codex and Claude permission dialogs do not control tools executed inside the Copilot SDK.
+- Path-like tool arguments are checked against the canonical workspace and symlink escapes are rejected.
+- Tool arguments, prompts, source, GitHub tokens, and adapter tokens are not logged.
+- `unsafe-shell` is intentionally not treated as a hardened sandbox.
+- A hosted gateway requires separate per-user identity, tenant isolation, repository execution, licensing, and audit design.
+
+## Upstream and license
+
+The protocol translation layer is based on the MIT-licensed [`copilot-sdk-proxy`](https://github.com/theblixguy/copilot-sdk-proxy). See [LICENSE](./LICENSE). This fork replaces permissive defaults with local authentication, SDK empty mode, explicit policies, reversible client setup, and updated Copilot SDK support.

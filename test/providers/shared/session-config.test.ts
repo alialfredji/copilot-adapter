@@ -46,6 +46,21 @@ describe("createSessionConfig", () => {
     expect(result.includeSubAgentStreamingEvents).toBe(false);
   });
 
+  it("disables host discovery, persistence, telemetry, and memory", () => {
+    const result = createSessionConfig({
+      model: "gpt-4",
+      logger,
+      config: defaultConfig(),
+      supportsReasoningEffort: false,
+    });
+    expect(result.enableConfigDiscovery).toBe(false);
+    expect(result.enableSkills).toBe(false);
+    expect(result.enableHostGitOperations).toBe(false);
+    expect(result.enableSessionStore).toBe(false);
+    expect(result.enableSessionTelemetry).toBe(false);
+    expect(result.memory).toEqual({ enabled: false });
+  });
+
   it("includes system message when provided", () => {
     const result = createSessionConfig({
       model: "gpt-4",
@@ -55,7 +70,7 @@ describe("createSessionConfig", () => {
       supportsReasoningEffort: false,
     });
     expect(result.systemMessage).toEqual({
-      mode: "replace",
+      mode: "append",
       content: "You are a helpful assistant.",
     });
   });
@@ -153,10 +168,12 @@ describe("createSessionConfig", () => {
       config,
       supportsReasoningEffort: false,
     });
-    expect(result.availableTools).toEqual(["glob", "grep"]);
+    expect(result.availableTools).toEqual(
+      expect.arrayContaining(["builtin:glob", "builtin:grep"]),
+    );
   });
 
-  it("omits available tools when CLI tools list is empty", () => {
+  it("keeps only isolated tools when CLI tools list is empty", () => {
     const config = defaultConfig({ allowedCliTools: [] });
     const result = createSessionConfig({
       model: "gpt-4",
@@ -164,7 +181,8 @@ describe("createSessionConfig", () => {
       config,
       supportsReasoningEffort: false,
     });
-    expect(result.availableTools).toBeUndefined();
+    expect(result.availableTools).toContain("builtin:task_complete");
+    expect(result.availableTools).not.toContain("builtin:glob");
   });
 
   it("onPermissionRequest approves when autoApprovePermissions is true", async () => {
@@ -357,7 +375,6 @@ describe("createSessionConfig", () => {
     );
     expect(spy).toHaveBeenCalledWith(
       expect.stringContaining("Tool executed: bash"),
-      { command: "ls" },
     );
   });
 

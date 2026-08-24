@@ -9,7 +9,7 @@ describe("ServerConfigSchema", () => {
     expect(result.codex.mcpServers).toEqual({});
     expect(result.allowedCliTools).toEqual([]);
     expect(result.bodyLimit).toBe(10);
-    expect(result.autoApprovePermissions).toBe(true);
+    expect(result.autoApprovePermissions).toBe(false);
   });
 
   it("parses a valid full config", () => {

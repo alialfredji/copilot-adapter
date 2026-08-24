@@ -23,6 +23,7 @@ const AVAILABLE_MODELS: ModelInfo[] = [
   {
     id: "claude-opus-4-5",
     capabilities: { supports: { reasoningEffort: true } },
+    supportedReasoningEfforts: ["high"],
   },
 ] as ModelInfo[];
 

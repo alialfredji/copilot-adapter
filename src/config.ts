@@ -36,10 +36,10 @@ const MS_PER_MINUTE = 60_000;
 
 const DEFAULT_CONFIG = {
   mcpServers: {},
-  allowedCliTools: ["*"],
+  allowedCliTools: [],
   bodyLimit: 10 * BYTES_PER_MIB,
   requestTimeoutMs: 0,
-  autoApprovePermissions: true,
+  autoApprovePermissions: false,
 } satisfies ServerConfig;
 
 function resolveServerPaths(
@@ -69,10 +69,10 @@ export function resolveConfigPath(
   defaultPath: string,
 ): string {
   if (projectCwd) {
-    const projectConfig = resolve(projectCwd, "config.json5");
+    const projectConfig = resolve(projectCwd, ".copilot-harness.json5");
     if (existsSync(projectConfig)) return projectConfig;
   }
-  const localConfig = resolve(processCwd, "config.json5");
+  const localConfig = resolve(processCwd, ".copilot-harness.json5");
   if (existsSync(localConfig)) return localConfig;
   return defaultPath;
 }

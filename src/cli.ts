@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { join, dirname } from "node:path";
+import { join, dirname, resolve as resolvePath } from "node:path";
 import { readFile } from "node:fs/promises";
+import { spawn, spawnSync } from "node:child_process";
 import { z } from "zod";
 import { Command } from "commander";
 import { CopilotService } from "#copilot-service.js";
@@ -30,6 +31,17 @@ import {
   printBanner,
   printUsageSummary,
 } from "#ui.js";
+import { applyPolicy, parsePolicy, type PolicyName } from "#policies.js";
+import { getOrCreateToken, rotateToken } from "#credentials.js";
+import {
+  defaultClaudeCliPath,
+  defaultClaudeVsCodePath,
+  defaultCodexPath,
+  restoreClientSetup,
+  setupClaudeCli,
+  setupClaudeVsCode,
+  setupCodex,
+} from "#client-setup.js";
 
 const PACKAGE_ROOT = dirname(import.meta.dirname);
 const DEFAULT_CONFIG_PATH = join(PACKAGE_ROOT, "config.json5");
@@ -47,12 +59,42 @@ interface StartOptions {
   config?: string;
   cwd?: string;
   idleTimeout?: string;
+  policy: string;
+}
+
+function adapterBinaryPath(override?: string): string {
+  return resolvePath(
+    override ?? process.argv[1] ?? join(PACKAGE_ROOT, "dist", "cli.js"),
+  );
+}
+
+async function runGitHubLogin(): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn("gh", ["auth", "login"], { stdio: "inherit" });
+    child.once("error", reject);
+    child.once("exit", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`gh auth login exited with code ${String(code)}`));
+    });
+  });
+}
+
+async function fetchAdapter(path: string, port: number): Promise<unknown> {
+  const token = await getOrCreateToken();
+  const response = await fetch(`http://127.0.0.1:${String(port)}${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    throw new Error(`Adapter returned HTTP ${String(response.status)}`);
+  }
+  return response.json();
 }
 
 async function loadProvider(
   mode: ProviderMode,
   configPath: string,
   logger: Logger,
+  policy: PolicyName,
 ): Promise<{
   provider: Provider;
   config: ServerConfig;
@@ -60,14 +102,20 @@ async function loadProvider(
 }> {
   if (mode === "auto") {
     const allConfigs = await loadAllProviderConfigs(configPath, logger);
+    const securedProviders = Object.fromEntries(
+      Object.entries(allConfigs.providers).map(([name, config]) => [
+        name,
+        applyPolicy(config, policy),
+      ]),
+    ) as AllProviderConfigs["providers"];
     return {
-      provider: createAutoProvider(allConfigs.providers),
-      config: allConfigs.shared,
-      allConfigs,
+      provider: createAutoProvider(securedProviders),
+      config: applyPolicy(allConfigs.shared, policy),
+      allConfigs: { ...allConfigs, providers: securedProviders },
     };
   }
   const config = await loadConfig(configPath, logger, mode);
-  return { provider: providers[mode], config };
+  return { provider: providers[mode], config: applyPolicy(config, policy) };
 }
 
 async function startServer(options: StartOptions): Promise<void> {
@@ -80,6 +128,7 @@ async function startServer(options: StartOptions): Promise<void> {
   const idleTimeoutMinutes = options.idleTimeout
     ? parseIdleTimeout(options.idleTimeout)
     : 0;
+  const policy = parsePolicy(options.policy);
 
   const configPath =
     options.config ??
@@ -88,6 +137,7 @@ async function startServer(options: StartOptions): Promise<void> {
     mode,
     configPath,
     logger,
+    policy,
   );
   const cwd = options.cwd;
 
@@ -101,7 +151,7 @@ async function startServer(options: StartOptions): Promise<void> {
 
   if (!quiet) {
     console.log();
-    console.log(`  ${bold("copilot-proxy")} ${dim(`v${version}`)}`);
+    console.log(`  ${bold("copilot-harness")} ${dim(`v${version}`)}`);
     console.log();
   }
 
@@ -128,8 +178,18 @@ async function startServer(options: StartOptions): Promise<void> {
   );
 
   const stats = new Stats();
-  const ctx: AppContext = { service, logger, config, port, stats };
-  const app = await createServer(ctx, provider);
+  const ctx: AppContext = {
+    service,
+    logger,
+    config,
+    port,
+    stats,
+    workspace: service.cwd,
+    policy,
+  };
+  await getOrCreateToken();
+  // Resolve per request so `token --rotate` takes effect without restarting.
+  const app = await createServer(ctx, provider, getOrCreateToken);
 
   let lastActivity = Date.now();
   app.addHook("onResponse", () => {
@@ -152,7 +212,12 @@ async function startServer(options: StartOptions): Promise<void> {
       port,
       provider: mode,
       providerName: provider.name,
-      routes: [...provider.routes, "GET /health"],
+      routes: [
+        "GET /health",
+        "GET /v1/models",
+        "HEAD /api/hello",
+        ...provider.routes,
+      ],
       cwd: service.cwd,
     });
   }
@@ -168,6 +233,7 @@ async function startServer(options: StartOptions): Promise<void> {
     ? "all CLI tools allowed"
     : `${String(config.allowedCliTools.length)} allowed CLI tool(s)`;
   logger.debug(`${String(mcpCount)} MCP server(s), ${cliToolsSummary}`);
+  logger.info(`Policy: ${policy}`);
 
   const shutdown = async (signal: string) => {
     process.on("uncaughtException", (err: NodeJS.ErrnoException) => {
@@ -181,12 +247,12 @@ async function startServer(options: StartOptions): Promise<void> {
     const stopPromise = service.stop().then(() => {
       logger.info("Clean shutdown complete");
     });
-    const timeoutPromise = new Promise<void>((resolve) =>
+    const timeoutPromise = new Promise<void>((resolve) => {
       setTimeout(() => {
         logger.warn("Copilot client didn't stop in time, forcing exit");
-        resolve();
-      }, 3000),
-    );
+        service.forceStop().then(resolve, resolve);
+      }, 3000);
+    });
 
     await Promise.race([stopPromise, timeoutPromise]);
 
@@ -230,26 +296,218 @@ async function startServer(options: StartOptions): Promise<void> {
 }
 
 const program = new Command()
-  .name("copilot-proxy")
-  .description(
-    "Generic proxy server translating API requests into GitHub Copilot SDK sessions",
-  )
+  .name("copilot-harness")
+  .description("Secure local GitHub Copilot adapter for Codex and Claude Code")
   .version(version, "-v, --version");
 
 program
   .command("start", { isDefault: true })
-  .description("Start the proxy server")
-  .option("-p, --port <number>", "port to listen on", "8080")
+  .description("Start the local adapter")
+  .option("-p, --port <number>", "port to listen on", "4141")
   .option("--provider <name>", "run a single provider: openai, claude, codex")
   .option("-l, --log-level <level>", "log verbosity", "info")
   .option("-c, --config <path>", "path to config file")
   .option("--cwd <path>", "working directory for Copilot sessions")
+  .option(
+    "--policy <name>",
+    "chat, read-only, workspace-write, unsafe-shell, or unsafe-all",
+    "read-only",
+  )
   .option(
     "--idle-timeout <minutes>",
     "shut down after N minutes of inactivity",
     "0",
   )
   .action((options: StartOptions) => startServer(options));
+
+program
+  .command("token")
+  .description("Print the local adapter token for a client credential helper")
+  .option("--rotate", "replace the current local token")
+  .action(async (options: { rotate?: boolean }) => {
+    console.log(
+      options.rotate ? await rotateToken() : await getOrCreateToken(),
+    );
+    if (options.rotate) {
+      console.error(
+        "Token rotated. Codex/Claude CLI update automatically; rerun `copilot-harness setup claude-vscode --model <model-id>` and update Claude Desktop's API key.",
+      );
+    }
+  });
+
+program
+  .command("login")
+  .description("Authenticate GitHub for the Copilot SDK through gh CLI")
+  .action(runGitHubLogin);
+
+program
+  .command("doctor")
+  .description("Check the local prerequisites without starting the adapter")
+  .action(async () => {
+    const [nodeMajor = 0, nodeMinor = 0] = process.versions.node
+      .split(".")
+      .map((part) => Number.parseInt(part, 10));
+    const nodeSupported =
+      nodeMajor > 22 || (nodeMajor === 22 && nodeMinor >= 12);
+    const copilot = spawnSync("copilot", ["--version"], { encoding: "utf8" });
+    const hasEnvironmentToken = Boolean(
+      process.env.COPILOT_GITHUB_TOKEN ??
+      process.env.GH_TOKEN ??
+      process.env.GITHUB_TOKEN,
+    );
+    const gh = spawnSync("gh", ["auth", "status"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const hasSdkAuth = hasEnvironmentToken || gh.status === 0;
+    await getOrCreateToken();
+    console.log(
+      `${nodeSupported ? "OK" : "FAIL"} Node ${process.versions.node} (22.12+ required)`,
+    );
+    console.log(
+      `${copilot.status === 0 ? "OK" : "FAIL"} ${copilot.stdout.trim() || "GitHub Copilot CLI not found"}`,
+    );
+    console.log(
+      `${hasSdkAuth ? "OK" : "FAIL"} SDK authentication (${hasEnvironmentToken ? "environment token" : "gh auth"})`,
+    );
+    console.log("OK local adapter credential");
+    if (!nodeSupported || copilot.status !== 0 || !hasSdkAuth) {
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command("status")
+  .description("Check a running adapter and optionally list models")
+  .option("-p, --port <number>", "adapter port", "4141")
+  .option("--models", "list model IDs available to this Copilot seat")
+  .action(async (options: { port: string; models?: boolean }) => {
+    const port = parsePort(options.port);
+    const health = await fetchAdapter("/health", port);
+    console.log(JSON.stringify(health, null, 2));
+    if (options.models) {
+      const response = (await fetchAdapter("/v1/models?limit=1000", port)) as {
+        data?: { id?: string; name?: string }[];
+      };
+      for (const model of response.data ?? []) {
+        console.log(`${model.id ?? "unknown"}\t${model.name ?? ""}`.trim());
+      }
+    }
+  });
+
+const setup = program.command("setup").description("Configure a client");
+
+setup
+  .command("codex")
+  .description("Configure Codex CLI profile or Codex Desktop global settings")
+  .option("--model <id>", "model ID from `copilot-harness status --models`")
+  .option("--scope <scope>", "profile or global", "profile")
+  .option("-p, --port <number>", "adapter port", "4141")
+  .option("--binary <path>", "absolute installed copilot-harness path")
+  .option("--remove", "restore the exact pre-setup configuration")
+  .action(
+    async (options: {
+      model?: string;
+      scope: string;
+      port: string;
+      binary?: string;
+      remove?: boolean;
+    }) => {
+      if (options.scope !== "profile" && options.scope !== "global") {
+        throw new Error("scope must be profile or global");
+      }
+      const target = defaultCodexPath(options.scope);
+      if (options.remove) {
+        console.log(
+          (await restoreClientSetup(target))
+            ? `Restored ${target}`
+            : `No backup for ${target}`,
+        );
+        return;
+      }
+      if (!options.model) throw new Error("--model is required for setup");
+      const result = await setupCodex({
+        scope: options.scope,
+        binaryPath: adapterBinaryPath(options.binary),
+        port: parsePort(options.port),
+        model: options.model,
+      });
+      console.log(`Configured ${result.targetPath}`);
+    },
+  );
+
+setup
+  .command("claude-cli")
+  .description("Configure Claude Code CLI")
+  .option("--model <id>", "Claude model ID from adapter models")
+  .option("-p, --port <number>", "adapter port", "4141")
+  .option("--binary <path>", "absolute installed copilot-harness path")
+  .option("--remove", "restore the exact pre-setup configuration")
+  .action(
+    async (options: {
+      model?: string;
+      port: string;
+      binary?: string;
+      remove?: boolean;
+    }) => {
+      const target = defaultClaudeCliPath();
+      if (options.remove) {
+        console.log(
+          (await restoreClientSetup(target))
+            ? `Restored ${target}`
+            : `No backup for ${target}`,
+        );
+        return;
+      }
+      if (!options.model) throw new Error("--model is required for setup");
+      const result = await setupClaudeCli({
+        binaryPath: adapterBinaryPath(options.binary),
+        port: parsePort(options.port),
+        model: options.model,
+      });
+      console.log(`Configured ${result.targetPath}`);
+    },
+  );
+
+setup
+  .command("claude-vscode")
+  .description("Configure the Claude Code VS Code extension")
+  .option("--model <id>", "Claude model ID from adapter models")
+  .option("-p, --port <number>", "adapter port", "4141")
+  .option("--remove", "restore the exact pre-setup configuration")
+  .action(
+    async (options: { model?: string; port: string; remove?: boolean }) => {
+      const target = defaultClaudeVsCodePath();
+      if (options.remove) {
+        console.log(
+          (await restoreClientSetup(target))
+            ? `Restored ${target}`
+            : `No backup for ${target}`,
+        );
+        return;
+      }
+      if (!options.model) throw new Error("--model is required for setup");
+      const result = await setupClaudeVsCode({
+        token: await getOrCreateToken(),
+        port: parsePort(options.port),
+        model: options.model,
+      });
+      console.log(`Configured ${result.targetPath}; reload the VS Code window`);
+    },
+  );
+
+setup
+  .command("claude-desktop")
+  .description("Print the Claude Desktop gateway fields")
+  .option("-p, --port <number>", "adapter port", "4141")
+  .action((options: { port: string }) => {
+    const port = parsePort(options.port);
+    console.log("Provider: Gateway");
+    console.log(`Base URL: http://127.0.0.1:${String(port)}`);
+    console.log("Credential kind: Static API key");
+    console.log("Auth scheme: Bearer");
+    console.log("API key: run `copilot-harness token`");
+  });
 
 program.parseAsync().catch((err: unknown) => {
   console.error("Fatal error:", err);

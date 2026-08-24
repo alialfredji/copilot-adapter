@@ -1,8 +1,10 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
+import { timingSafeEqual } from "node:crypto";
 import type { AppContext } from "#context.js";
 import type { LogLevel } from "#logger.js";
 import type { Provider } from "#providers/types.js";
+import { createModelsHandler } from "#providers/openai/models.js";
 
 const PINO_LEVEL = {
   none: "silent",
@@ -16,6 +18,7 @@ const PINO_LEVEL = {
 export async function createServer(
   ctx: AppContext,
   provider: Provider,
+  authToken: string | (() => Promise<string>),
 ): Promise<FastifyInstance> {
   const app = Fastify({
     bodyLimit: ctx.config.bodyLimit,
@@ -29,7 +32,7 @@ export async function createServer(
   app.server.requestTimeout = ctx.config.requestTimeoutMs;
 
   await app.register(cors, {
-    origin: "*",
+    origin: false,
     methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: [
       "Content-Type",
@@ -38,6 +41,32 @@ export async function createServer(
       "anthropic-version",
       "x-api-key",
     ],
+  });
+
+  app.addHook("onRequest", async (request, reply) => {
+    if (request.method === "OPTIONS") return;
+    const authorization = request.headers.authorization;
+    const bearer = authorization?.startsWith("Bearer ")
+      ? authorization.slice("Bearer ".length)
+      : undefined;
+    const apiKeyHeader = request.headers["x-api-key"];
+    const apiKey = Array.isArray(apiKeyHeader) ? apiKeyHeader[0] : apiKeyHeader;
+    const supplied = bearer ?? apiKey;
+    const expected = Buffer.from(
+      typeof authToken === "string" ? authToken : await authToken(),
+    );
+    const actual = Buffer.from(supplied ?? "");
+    if (
+      actual.length !== expected.length ||
+      !timingSafeEqual(actual, expected)
+    ) {
+      await reply.status(401).send({
+        error: {
+          type: "authentication_error",
+          message: "Invalid local adapter token",
+        },
+      });
+    }
   });
 
   app.get("/health", async (_req, reply) => {
@@ -49,12 +78,20 @@ export async function createServer(
         message,
         timestamp,
         protocolVersion,
+        ...(ctx.workspace && { workspace: ctx.workspace }),
+        ...(ctx.policy && { policy: ctx.policy }),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       return reply.status(503).send({ status: "error", message });
     }
   });
+
+  app.head("/api/hello", async (_req, reply) => {
+    await reply.status(204).send();
+  });
+
+  app.get("/v1/models", createModelsHandler(ctx));
 
   provider.register(app, ctx);
 
