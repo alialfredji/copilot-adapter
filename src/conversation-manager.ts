@@ -8,6 +8,7 @@ export interface Conversation {
   sentMessageCount: number;
   isPrimary: boolean;
   model: string | null;
+  reasoningEffort?: string | null;
   sessionActive: boolean;
   hadError: boolean;
 }
@@ -36,6 +37,7 @@ export class DefaultConversationManager implements ConversationManager {
       sentMessageCount: 0,
       isPrimary,
       model: null,
+      reasoningEffort: null,
       sessionActive: false,
       hadError: false,
     };

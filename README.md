@@ -38,7 +38,7 @@ In another terminal:
 copilot-harness status --models
 ```
 
-Choose an exact returned model ID. The adapter never silently substitutes a nearby model.
+The adapter never silently substitutes a nearby model. Setup does not pin a model unless you explicitly pass `--default-model`.
 
 `copilot-harness token --rotate` is picked up live by the adapter and helper-based clients. Rerun VS Code setup and replace Claude Desktop's static API key afterward.
 
@@ -53,11 +53,13 @@ Policies:
 ## Codex CLI
 
 ```bash
-copilot-harness setup codex --scope profile --model <model-id>
+copilot-harness setup codex --scope profile
 codex --profile copilot
 ```
 
-This writes `~/.codex/copilot.config.toml`. To undo it:
+Setup syncs the Copilot seat into `~/.copilot-harness/codex-models.json` and writes `~/.codex/copilot.config.toml`. Inside Codex, use `/model` to switch models and `/reasoning` to change effort. Neither requires restarting the adapter.
+
+After an organization model-policy change, refresh the picker with `copilot-harness models sync`, then restart Codex because Codex loads catalogs at startup. To undo setup:
 
 ```bash
 copilot-harness setup codex --scope profile --remove
@@ -66,10 +68,10 @@ copilot-harness setup codex --scope profile --remove
 ## Codex Desktop
 
 ```bash
-copilot-harness setup codex --scope global --model <model-id>
+copilot-harness setup codex --scope global
 ```
 
-Restart Codex Desktop, select a **local** task, and open the same folder passed to `--cwd`. The setup command updates `~/.codex/config.toml` and creates an exact reversible backup.
+Restart Codex Desktop, select a **local** task, and open the same folder passed to `--cwd`. Use the model picker for any catalog model and its advertised effort levels. The same global setup is used by the Codex VS Code extension; reload VS Code after setup.
 
 Undo:
 
@@ -81,14 +83,14 @@ Codex cloud tasks cannot reach a localhost adapter.
 
 ## Claude Code CLI
 
-Use an ID containing `claude` or `anthropic`; Claude's gateway discovery filters other IDs.
+Claude Code deliberately accepts only discovered IDs containing `claude` or `anthropic`; GPT and Gemini models remain available in Codex but cannot be exposed honestly in Claude Code.
 
 ```bash
-copilot-harness setup claude-cli --model <claude-model-id>
+copilot-harness setup claude-cli
 claude
 ```
 
-Verify `/status` shows `http://127.0.0.1:4141`, then verify `/model`.
+Verify `/status` shows `http://127.0.0.1:4141`. Setup disables competing Foundry, Bedrock, and Vertex routing flags. Use `/model` to switch Claude models and `/effort` (or left/right in the model picker) to change effort without restarting the adapter. The adapter rejects effort levels a selected Copilot model does not advertise.
 
 Undo:
 
@@ -99,10 +101,10 @@ copilot-harness setup claude-cli --remove
 ## Claude Code for VS Code
 
 ```bash
-copilot-harness setup claude-vscode --model <claude-model-id>
+copilot-harness setup claude-vscode
 ```
 
-Reload the VS Code window. The installer preserves JSONC comments and unrelated environment variables.
+Reload the VS Code window, then use `/model` and `/effort`. The installer preserves JSONC comments and unrelated environment variables.
 
 Undo:
 
@@ -127,7 +129,7 @@ Then configure:
 6. Auth scheme: `Bearer`.
 7. API key: output from `copilot-harness token`.
 
-Gateway Code sessions are local-only; SSH, Remote Control, and cloud execution are unavailable.
+Use the Code tab's model control for discovered Claude-family models. Gateway Code sessions are local-only; SSH, Remote Control, and cloud execution are unavailable.
 
 ## Verify the adapter itself
 
@@ -137,7 +139,7 @@ npm test
 npm run build
 ```
 
-The deterministic suite covers both protocol translators, authentication, safe policy presets, path and symlink escapes, streaming events, client config merging, and exact rollback. The former upstream localhost-BYOK runtime tests are excluded because SDK 1.0.8 blocks their insecure mock transport; perform the live smoke test below instead.
+The deterministic suite covers both protocol translators, dynamic model/effort switching, Codex catalog generation, authentication, safe policy presets, path and symlink escapes, streaming events, client config merging, and exact rollback. The former upstream localhost-BYOK runtime tests are excluded because SDK 1.0.8 blocks their insecure mock transport; perform the live smoke test below instead.
 
 ## Live smoke test
 

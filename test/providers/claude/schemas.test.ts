@@ -16,6 +16,17 @@ describe("AnthropicRequestSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("preserves gateway output_config effort", () => {
+    const result = AnthropicRequestSchema.safeParse({
+      ...validRequest,
+      output_config: { effort: "high" },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.output_config).toEqual({ effort: "high" });
+    }
+  });
+
   it("rejects missing model", () => {
     const { model: _model, ...rest } = validRequest;
     expect(AnthropicRequestSchema.safeParse(rest).success).toBe(false);

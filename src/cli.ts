@@ -33,6 +33,7 @@ import {
 } from "#ui.js";
 import { applyPolicy, parsePolicy, type PolicyName } from "#policies.js";
 import { getOrCreateToken, rotateToken } from "#credentials.js";
+import { defaultCodexCatalogPath, writeCodexCatalog } from "#codex-catalog.js";
 import {
   defaultClaudeCliPath,
   defaultClaudeVsCodePath,
@@ -66,6 +67,38 @@ function adapterBinaryPath(override?: string): string {
   return resolvePath(
     override ?? process.argv[1] ?? join(PACKAGE_ROOT, "dist", "cli.js"),
   );
+}
+
+function selectedDefaultModel(options: {
+  defaultModel?: string;
+  model?: string;
+}): string | undefined {
+  if (
+    options.defaultModel &&
+    options.model &&
+    options.defaultModel !== options.model
+  ) {
+    throw new Error("--default-model and --model must match when both are set");
+  }
+  return options.defaultModel ?? options.model;
+}
+
+async function syncCodexModels(
+  targetPath = defaultCodexCatalogPath(),
+): Promise<{ targetPath: string; modelCount: number }> {
+  const service = new CopilotService({ logLevel: "none" });
+  await service.start();
+  try {
+    const auth = await service.getAuthStatus();
+    if (!auth.isAuthenticated) {
+      throw new Error(
+        "GitHub authentication is required; run `copilot-harness login` first",
+      );
+    }
+    return await writeCodexCatalog(await service.listModels(), targetPath);
+  } finally {
+    await service.stop();
+  }
 }
 
 async function runGitHubLogin(): Promise<void> {
@@ -330,7 +363,7 @@ program
     );
     if (options.rotate) {
       console.error(
-        "Token rotated. Codex/Claude CLI update automatically; rerun `copilot-harness setup claude-vscode --model <model-id>` and update Claude Desktop's API key.",
+        "Token rotated. Codex/Claude CLI update automatically; rerun `copilot-harness setup claude-vscode` and update Claude Desktop's API key.",
       );
     }
   });
@@ -395,12 +428,31 @@ program
     }
   });
 
+const models = program
+  .command("models")
+  .description("Manage client model catalogs");
+
+models
+  .command("sync")
+  .description("Sync Copilot models into the Codex model picker catalog")
+  .option("--output <path>", "catalog output path")
+  .action(async (options: { output?: string }) => {
+    const result = await syncCodexModels(
+      options.output ? resolvePath(options.output) : undefined,
+    );
+    console.log(
+      `Synced ${String(result.modelCount)} models to ${result.targetPath}`,
+    );
+  });
+
 const setup = program.command("setup").description("Configure a client");
 
 setup
   .command("codex")
   .description("Configure Codex CLI profile or Codex Desktop global settings")
-  .option("--model <id>", "model ID from `copilot-harness status --models`")
+  .option("--default-model <id>", "optional initial model; use /model later")
+  .option("--model <id>", "deprecated alias for --default-model")
+  .option("--catalog <path>", "Codex model catalog output path")
   .option("--scope <scope>", "profile or global", "profile")
   .option("-p, --port <number>", "adapter port", "4141")
   .option("--binary <path>", "absolute installed copilot-harness path")
@@ -408,6 +460,8 @@ setup
   .action(
     async (options: {
       model?: string;
+      defaultModel?: string;
+      catalog?: string;
       scope: string;
       port: string;
       binary?: string;
@@ -425,27 +479,39 @@ setup
         );
         return;
       }
-      if (!options.model) throw new Error("--model is required for setup");
+      const catalogPath = options.catalog
+        ? resolvePath(options.catalog)
+        : defaultCodexCatalogPath();
+      const synced = await syncCodexModels(catalogPath);
+      const defaultModel = selectedDefaultModel(options);
       const result = await setupCodex({
         scope: options.scope,
         binaryPath: adapterBinaryPath(options.binary),
         port: parsePort(options.port),
-        model: options.model,
+        ...(defaultModel ? { model: defaultModel } : {}),
+        catalogPath: synced.targetPath,
       });
-      console.log(`Configured ${result.targetPath}`);
+      console.log(
+        `Configured ${result.targetPath} with ${String(synced.modelCount)} selectable models`,
+      );
     },
   );
 
 setup
   .command("claude-cli")
   .description("Configure Claude Code CLI")
-  .option("--model <id>", "Claude model ID from adapter models")
+  .option(
+    "--default-model <id>",
+    "optional initial Claude model; use /model later",
+  )
+  .option("--model <id>", "deprecated alias for --default-model")
   .option("-p, --port <number>", "adapter port", "4141")
   .option("--binary <path>", "absolute installed copilot-harness path")
   .option("--remove", "restore the exact pre-setup configuration")
   .action(
     async (options: {
       model?: string;
+      defaultModel?: string;
       port: string;
       binary?: string;
       remove?: boolean;
@@ -459,11 +525,11 @@ setup
         );
         return;
       }
-      if (!options.model) throw new Error("--model is required for setup");
+      const defaultModel = selectedDefaultModel(options);
       const result = await setupClaudeCli({
         binaryPath: adapterBinaryPath(options.binary),
         port: parsePort(options.port),
-        model: options.model,
+        ...(defaultModel ? { model: defaultModel } : {}),
       });
       console.log(`Configured ${result.targetPath}`);
     },
@@ -472,11 +538,20 @@ setup
 setup
   .command("claude-vscode")
   .description("Configure the Claude Code VS Code extension")
-  .option("--model <id>", "Claude model ID from adapter models")
+  .option(
+    "--default-model <id>",
+    "optional initial Claude model; use /model later",
+  )
+  .option("--model <id>", "deprecated alias for --default-model")
   .option("-p, --port <number>", "adapter port", "4141")
   .option("--remove", "restore the exact pre-setup configuration")
   .action(
-    async (options: { model?: string; port: string; remove?: boolean }) => {
+    async (options: {
+      model?: string;
+      defaultModel?: string;
+      port: string;
+      remove?: boolean;
+    }) => {
       const target = defaultClaudeVsCodePath();
       if (options.remove) {
         console.log(
@@ -486,11 +561,11 @@ setup
         );
         return;
       }
-      if (!options.model) throw new Error("--model is required for setup");
+      const defaultModel = selectedDefaultModel(options);
       const result = await setupClaudeVsCode({
         token: await getOrCreateToken(),
         port: parsePort(options.port),
-        model: options.model,
+        ...(defaultModel ? { model: defaultModel } : {}),
       });
       console.log(`Configured ${result.targetPath}; reload the VS Code window`);
     },

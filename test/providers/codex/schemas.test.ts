@@ -17,6 +17,17 @@ describe("ResponsesRequestSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("preserves Responses API reasoning effort", () => {
+    const result = ResponsesRequestSchema.safeParse({
+      ...validRequest,
+      reasoning: { effort: "high" },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.reasoning).toEqual({ effort: "high" });
+    }
+  });
+
   it("accepts array input with a user message", () => {
     const result = ResponsesRequestSchema.safeParse({
       model: "o3-mini",

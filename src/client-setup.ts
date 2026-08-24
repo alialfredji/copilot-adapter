@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import JSON5 from "json5";
 import { applyEdits, modify } from "jsonc-parser";
+import { defaultCodexCatalogPath } from "#codex-catalog.js";
 
 const PROVIDER_ID = "copilot_harness";
 const LEGACY_START_MARKER = "# copilot-harness:start";
@@ -31,21 +32,22 @@ export type CodexSetupOptions = {
   scope: "profile" | "global";
   binaryPath: string;
   port: number;
-  model: string;
+  model?: string;
+  catalogPath?: string;
   targetPath?: string;
 };
 
 export type ClaudeCliSetupOptions = {
   binaryPath: string;
   port: number;
-  model: string;
+  model?: string;
   targetPath?: string;
 };
 
 export type ClaudeVsCodeSetupOptions = {
   token: string;
   port: number;
-  model: string;
+  model?: string;
   targetPath?: string;
 };
 
@@ -59,11 +61,13 @@ type BackupRecord = {
 
 type JsonObject = Record<string, unknown>;
 
-function validateCommon(port: number, model: string): void {
+function validateCommon(port: number, model?: string): void {
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new Error("Port must be an integer between 1 and 65535");
   }
-  if (!model.trim()) throw new Error("Model must not be empty");
+  if (model !== undefined && !model.trim()) {
+    throw new Error("Model must not be empty");
+  }
 }
 
 function validateBinaryPath(binaryPath: string): void {
@@ -214,13 +218,24 @@ function stripManagedToml(source: string): string {
   return output;
 }
 
+function assertCodexProviderAvailable(source: string) {
+  if (/^\s*\[model_providers\.copilot_harness(?:\]|\.)/m.test(source)) {
+    throw new Error(
+      'Codex config already contains an unmanaged "copilot_harness" provider',
+    );
+  }
+}
+
 function disableTopLevelCodexSelection(source: string): string {
   const lines = source.split(/\r?\n/);
   let inTable = false;
   return lines
     .map((line) => {
       if (/^\s*\[/.test(line)) inTable = true;
-      if (!inTable && /^\s*(model|model_provider)\s*=/.test(line)) {
+      if (
+        !inTable &&
+        /^\s*(model|model_provider|model_catalog_json)\s*=/.test(line)
+      ) {
         return `# copilot-harness:replaced ${line}`;
       }
       return line;
@@ -233,12 +248,14 @@ function tomlString(value: string): string {
 }
 
 function codexSelection(options: CodexSetupOptions): string {
-  return [
+  const values = [
     SELECTION_START_MARKER,
-    `model = ${tomlString(options.model)}`,
+    ...(options.model ? [`model = ${tomlString(options.model)}`] : []),
     `model_provider = ${tomlString(PROVIDER_ID)}`,
+    `model_catalog_json = ${tomlString(options.catalogPath ?? defaultCodexCatalogPath())}`,
     SELECTION_END_MARKER,
-  ].join("\n");
+  ];
+  return values.join("\n");
 }
 
 function codexProvider(options: CodexSetupOptions): string {
@@ -273,6 +290,7 @@ export async function setupCodex(
   const targetPath = options.targetPath ?? defaultCodexPath(options.scope);
   return installConfig(targetPath, (source) => {
     const unmanaged = stripManagedToml(source);
+    assertCodexProviderAvailable(unmanaged);
     const existing = disableTopLevelCodexSelection(unmanaged).trim();
     return [codexSelection(options), existing, codexProvider(options)]
       .filter(Boolean)
@@ -314,11 +332,15 @@ export async function setupClaudeCli(
       config.env === undefined
         ? {}
         : asObject(config.env, "Claude settings env");
+    delete env.ANTHROPIC_MODEL;
     config.env = {
       ...env,
       ANTHROPIC_BASE_URL: `http://127.0.0.1:${options.port}`,
-      ANTHROPIC_MODEL: options.model,
+      ...(options.model && { ANTHROPIC_MODEL: options.model }),
       CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "1",
+      CLAUDE_CODE_USE_FOUNDRY: "0",
+      CLAUDE_CODE_USE_BEDROCK: "0",
+      CLAUDE_CODE_USE_VERTEX: "0",
     };
     config.apiKeyHelper = helperCommand(options.binaryPath);
     return `${JSON.stringify(config, null, 2)}\n`;
@@ -357,6 +379,9 @@ export async function setupClaudeVsCode(
       "ANTHROPIC_AUTH_TOKEN",
       "ANTHROPIC_MODEL",
       "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
+      "CLAUDE_CODE_USE_FOUNDRY",
+      "CLAUDE_CODE_USE_BEDROCK",
+      "CLAUDE_CODE_USE_VERTEX",
     ]);
     const preserved = current.filter((entry) => {
       if (!entry || typeof entry !== "object" || Array.isArray(entry))
@@ -367,8 +392,13 @@ export async function setupClaudeVsCode(
       ...preserved,
       { name: "ANTHROPIC_BASE_URL", value: `http://127.0.0.1:${options.port}` },
       { name: "ANTHROPIC_AUTH_TOKEN", value: options.token },
-      { name: "ANTHROPIC_MODEL", value: options.model },
+      ...(options.model
+        ? [{ name: "ANTHROPIC_MODEL", value: options.model }]
+        : []),
       { name: "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", value: "1" },
+      { name: "CLAUDE_CODE_USE_FOUNDRY", value: "0" },
+      { name: "CLAUDE_CODE_USE_BEDROCK", value: "0" },
+      { name: "CLAUDE_CODE_USE_VERTEX", value: "0" },
     ];
     const jsonc = source.trim() ? source : "{}\n";
     const output = applyEdits(

@@ -113,12 +113,19 @@ export interface AnthropicRequest {
   top_k?: number | undefined;
   stop_sequences?: string[] | undefined;
   metadata?: Record<string, unknown> | undefined;
+  output_config?: { effort?: string | undefined } | undefined;
   [key: string]: unknown;
 }
 
 // Drop unknown content blocks and tools without an input_schema; prompt.ts and
 // count-tokens.ts assume those shapes.
 function filterUnknownBlocks(data: BaseAnthropicRequest): AnthropicRequest {
+  const outputConfig =
+    typeof data.output_config === "object" && data.output_config !== null
+      ? data.output_config
+      : undefined;
+  const effort =
+    outputConfig && "effort" in outputConfig ? outputConfig.effort : undefined;
   return {
     ...data,
     messages: data.messages.map((msg) => ({
@@ -136,6 +143,7 @@ function filterUnknownBlocks(data: BaseAnthropicRequest): AnthropicRequest {
         typeof t["input_schema"] === "object" &&
         t["input_schema"] !== null,
     ),
+    output_config: typeof effort === "string" ? { effort } : undefined,
   } satisfies AnthropicRequest;
 }
 

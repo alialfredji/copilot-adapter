@@ -11,10 +11,7 @@ import {
   type SessionConfigOptions,
   toSdkEffort,
 } from "#providers/shared/session-config.js";
-import {
-  normalizeModelId,
-  resolveModelForSession,
-} from "#providers/shared/model-resolver.js";
+import { resolveModelForSession } from "#providers/shared/model-resolver.js";
 import { createSessionConfig } from "#providers/shared/session-config.js";
 import { sendSSEComment } from "#providers/shared/streaming-utils.js";
 
@@ -52,6 +49,8 @@ export interface HandlerPipeline<TReq> extends BaseHandlerOptions<TReq> {
   ) => void;
 
   extractSystemMessage: (req: TReq) => string | undefined;
+
+  extractReasoningEffort?: (req: TReq) => string | undefined;
 
   formatPrompt: (
     req: TReq,
@@ -111,38 +110,48 @@ export function runHandlerPipeline<
         : `New conversation ${conversation.id}`,
     );
 
-    if (
-      isReuse &&
-      conversation.session &&
-      conversation.model &&
-      normalizeModelId(conversation.model) !== normalizeModelId(req.model)
-    ) {
+    const requestedEffort = pipeline.extractReasoningEffort?.(req);
+
+    if (isReuse && conversation.session && conversation.model) {
       const resolved = await resolveModelForSession(
         service,
         req.model,
         config,
         logger,
+        requestedEffort,
       );
-      if (resolved.ok) {
+      if (!resolved.ok) {
+        pipeline.sendError(reply, 400, "invalid_request_error", resolved.error);
+        conversation.sessionActive = false;
+        return;
+      }
+      const modelChanged = conversation.model !== resolved.model;
+      const effortChanged =
+        (conversation.reasoningEffort ?? null) !==
+        (resolved.reasoningEffort ?? null);
+      if (modelChanged || effortChanged) {
         try {
           await conversation.session.setModel(resolved.model, {
-            ...(resolved.supportsReasoningEffort &&
-              config.reasoningEffort && {
-                reasoningEffort: toSdkEffort(config.reasoningEffort),
-              }),
+            ...(resolved.reasoningEffort && {
+              reasoningEffort: toSdkEffort(resolved.reasoningEffort),
+            }),
           });
           logger.info(
-            `Switched model: "${conversation.model}" → "${resolved.model}"`,
+            `Switched model: "${conversation.model}" → "${resolved.model}"${resolved.reasoningEffort ? ` (effort: ${resolved.reasoningEffort})` : ""}`,
           );
           conversation.model = resolved.model;
+          conversation.reasoningEffort = resolved.reasoningEffort ?? null;
         } catch (err) {
-          logger.warn(
-            `Failed to switch model to "${resolved.model}", continuing with "${conversation.model}":`,
-            err,
+          logger.warn(`Failed to switch model to "${resolved.model}":`, err);
+          pipeline.sendError(
+            reply,
+            500,
+            "api_error",
+            `Failed to switch model to "${resolved.model}"`,
           );
+          conversation.sessionActive = false;
+          return;
         }
-      } else {
-        logger.warn(`Cannot switch model: ${resolved.error}`);
       }
     }
 
@@ -187,22 +196,24 @@ export function runHandlerPipeline<
         req.model,
         config,
         logger,
+        requestedEffort,
       );
       if (!resolved.ok) {
         pipeline.sendError(reply, 400, "invalid_request_error", resolved.error);
         manager.remove(conversation.id);
         return;
       }
-      const { model: copilotModel, supportsReasoningEffort } = resolved;
+      const { model: copilotModel, reasoningEffort } = resolved;
 
       conversation.model = copilotModel;
+      conversation.reasoningEffort = reasoningEffort ?? null;
 
       const baseOptions: SessionConfigOptions = {
         model: copilotModel,
         systemMessage,
         logger,
         config,
-        supportsReasoningEffort,
+        reasoningEffort,
         cwd: service.cwd,
         provider: ctx.provider,
       };

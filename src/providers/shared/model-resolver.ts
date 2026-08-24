@@ -33,7 +33,7 @@ export function resolveModel(
 }
 
 export type ModelResolution =
-  | { ok: true; model: string; supportsReasoningEffort: boolean }
+  | { ok: true; model: string; reasoningEffort?: string | undefined }
   | { ok: false; error: string };
 
 export async function resolveModelForSession(
@@ -41,6 +41,7 @@ export async function resolveModelForSession(
   requestedModel: string,
   config: { reasoningEffort?: ReasoningEffort | undefined },
   logger: Logger,
+  requestedEffort?: string,
 ): Promise<ModelResolution> {
   try {
     const models = await service.listModels();
@@ -52,23 +53,44 @@ export async function resolveModelForSession(
       };
     }
 
-    let supportsReasoningEffort = false;
-    if (config.reasoningEffort) {
-      const modelInfo = models.find((m) => m.id === match.model);
-      supportsReasoningEffort =
-        modelInfo?.supportedReasoningEfforts?.some(
-          (effort) => effort === config.reasoningEffort,
-        ) ?? false;
-      if (!supportsReasoningEffort) {
+    const modelInfo = models.find((m) => m.id === match.model);
+    const reasoningEffort = requestedEffort ?? config.reasoningEffort;
+    if (reasoningEffort) {
+      const supported = modelInfo?.supportedReasoningEfforts ?? [];
+      if (!supported.some((effort) => effort === reasoningEffort)) {
+        if (requestedEffort) {
+          return {
+            ok: false,
+            error:
+              supported.length > 0
+                ? `Model "${match.model}" does not support reasoning effort "${reasoningEffort}". Supported efforts: ${supported.join(", ")}`
+                : `Model "${match.model}" does not support configurable reasoning effort`,
+          };
+        }
         logger.debug(
-          `Model "${match.model}" does not support reasoning effort "${config.reasoningEffort}", ignoring config`,
+          `Model "${match.model}" does not support configured reasoning effort "${reasoningEffort}", ignoring config`,
         );
+        return { ok: true, model: match.model };
       }
     }
 
-    return { ok: true, model: match.model, supportsReasoningEffort };
+    return {
+      ok: true,
+      model: match.model,
+      ...(reasoningEffort && { reasoningEffort }),
+    };
   } catch (err) {
+    if (requestedEffort) {
+      logger.warn(
+        "Failed to list models while validating reasoning effort:",
+        err,
+      );
+      return {
+        ok: false,
+        error: `Unable to validate reasoning effort "${requestedEffort}" because the Copilot model catalog is unavailable`,
+      };
+    }
     logger.warn("Failed to list models, passing model through as-is:", err);
-    return { ok: true, model: requestedModel, supportsReasoningEffort: false };
+    return { ok: true, model: requestedModel };
   }
 }

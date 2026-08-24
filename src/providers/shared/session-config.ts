@@ -13,15 +13,15 @@ type PreToolUseResult = NonNullable<
 type ErrorResult = NonNullable<
   Awaited<NonNullable<ReturnType<NonNullable<Hooks["onErrorOccurred"]>>>>
 >;
-import type { ServerConfig, ApprovalRule, ReasoningEffort } from "#config.js";
+import type { ServerConfig, ApprovalRule } from "#config.js";
 import type { Logger } from "#logger.js";
 import { isIsolatedTool, validateToolArguments } from "#security.js";
 
 type SdkReasoningEffort = NonNullable<SessionConfig["reasoningEffort"]>;
 
-// The SDK type doesn't include "max" but the Copilot backend accepts it
-// for Claude models. Cast our broader type to the SDK's narrower type.
-export function toSdkEffort(effort: ReasoningEffort): SdkReasoningEffort {
+// The runtime catalog can advertise values newer than the SDK declaration
+// (for example "none" or "max"), so cast only after catalog validation.
+export function toSdkEffort(effort: string): SdkReasoningEffort {
   return effort as SdkReasoningEffort;
 }
 
@@ -30,7 +30,9 @@ export interface SessionConfigOptions {
   systemMessage?: string | undefined;
   logger: Logger;
   config: ServerConfig;
-  supportsReasoningEffort: boolean;
+  reasoningEffort?: string | undefined;
+  /** @deprecated Use reasoningEffort; retained for API compatibility. */
+  supportsReasoningEffort?: boolean | undefined;
   cwd?: string | undefined;
   provider?: SessionConfig["provider"];
 }
@@ -53,6 +55,7 @@ export function createSessionConfig({
   systemMessage,
   logger,
   config,
+  reasoningEffort,
   supportsReasoningEffort,
   cwd,
   provider,
@@ -86,10 +89,12 @@ export function createSessionConfig({
     ),
 
     availableTools: buildAvailableTools(config),
-    ...(config.reasoningEffort &&
-      supportsReasoningEffort && {
-        reasoningEffort: toSdkEffort(config.reasoningEffort),
-      }),
+    ...((reasoningEffort ??
+      (supportsReasoningEffort ? config.reasoningEffort : undefined)) && {
+      reasoningEffort: toSdkEffort(
+        reasoningEffort ?? (config.reasoningEffort as string),
+      ),
+    }),
 
     onUserInputRequest: (request) => {
       logger.debug(`User input requested: "${request.question}"`);

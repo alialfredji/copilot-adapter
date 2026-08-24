@@ -32,6 +32,8 @@ export function createMessagesHandler(
 
       extractSystemMessage: (req) => extractAnthropicSystem(req.system),
 
+      extractReasoningEffort: (req) => req.output_config?.effort,
+
       formatPrompt: (req, conversation, isReuse) =>
         formatAnthropicPrompt(
           req.messages.slice(isReuse ? conversation.sentMessageCount : 0),

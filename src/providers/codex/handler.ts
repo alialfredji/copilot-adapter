@@ -68,6 +68,12 @@ export function createResponsesHandler(
       extractSystemMessage: (req) =>
         req.instructions ?? extractInstructions(req.input),
 
+      extractReasoningEffort: (req) => {
+        const effort = (req.reasoning as { effort?: unknown } | undefined)
+          ?.effort;
+        return typeof effort === "string" ? effort : undefined;
+      },
+
       formatPrompt: (req, conversation, isReuse) => {
         const slicedInput =
           isReuse && Array.isArray(req.input)

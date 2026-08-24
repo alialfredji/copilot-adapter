@@ -1,5 +1,7 @@
 # Native model picker plan
 
+Status: implemented in the local/CLI/Desktop/VS Code configuration phase. Hosted cloud gateway work remains a later phase.
+
 ## Decision
 
 Keep one model-agnostic adapter running. Client model pickers choose the model and

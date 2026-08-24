@@ -223,4 +223,20 @@ describe("AnthropicProtocol", () => {
     const textStartIdx = events.indexOf(textStart!);
     expect(thinkingStopIdx).toBeLessThan(textStartIdx);
   });
+
+  it("does not append an empty text block after reasoning-only output", () => {
+    const { reply, written } = mockReply();
+    const protocol = new AnthropicProtocol();
+
+    protocol.flushReasoningDeltas(reply, ["thinking"]);
+    protocol.sendCompleted(reply);
+
+    const starts = written
+      .map((entry) => parseSSE(entry) as Record<string, unknown>)
+      .filter((event) => event.type === "content_block_start");
+    expect(starts).toHaveLength(1);
+    expect((starts[0]!.content_block as Record<string, unknown>).type).toBe(
+      "thinking",
+    );
+  });
 });

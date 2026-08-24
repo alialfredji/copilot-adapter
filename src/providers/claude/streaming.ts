@@ -45,14 +45,7 @@ export class AnthropicProtocol implements StreamProtocol {
 
   closeOpenBlocks(r: FastifyReply): number {
     this.closeTextBlock(r);
-    if (this.thinkingBlockStarted) {
-      sendEvent(r, "content_block_stop", {
-        type: "content_block_stop",
-        index: this.thinkingBlockIndex,
-      } satisfies ContentBlockStopEvent);
-      this.nextBlockIndex = this.thinkingBlockIndex + 1;
-      this.thinkingBlockStarted = false;
-    }
+    this.closeThinkingBlock(r);
     return this.nextBlockIndex;
   }
 
@@ -75,6 +68,17 @@ export class AnthropicProtocol implements StreamProtocol {
     }
   }
 
+  protected closeThinkingBlock(r: FastifyReply): void {
+    if (this.thinkingBlockStarted) {
+      sendEvent(r, "content_block_stop", {
+        type: "content_block_stop",
+        index: this.thinkingBlockIndex,
+      } satisfies ContentBlockStopEvent);
+      this.nextBlockIndex = this.thinkingBlockIndex + 1;
+      this.thinkingBlockStarted = false;
+    }
+  }
+
   protected ensureThinkingBlock(r: FastifyReply): void {
     if (!this.thinkingBlockStarted) {
       this.closeTextBlock(r);
@@ -91,6 +95,7 @@ export class AnthropicProtocol implements StreamProtocol {
 
   protected ensureTextBlock(r: FastifyReply): void {
     if (!this.textBlockStarted) {
+      this.closeThinkingBlock(r);
       this.textBlockIndex = this.nextBlockIndex;
       const blockStart: ContentBlockStartEvent = {
         type: "content_block_start",
@@ -127,14 +132,7 @@ export class AnthropicProtocol implements StreamProtocol {
   }
 
   reasoningComplete(r: FastifyReply): void {
-    if (this.thinkingBlockStarted) {
-      sendEvent(r, "content_block_stop", {
-        type: "content_block_stop",
-        index: this.thinkingBlockIndex,
-      } satisfies ContentBlockStopEvent);
-      this.nextBlockIndex = this.thinkingBlockIndex + 1;
-      this.thinkingBlockStarted = false;
-    }
+    this.closeThinkingBlock(r);
   }
 
   flushDeltas(r: FastifyReply, deltas: string[]): void {
@@ -150,21 +148,20 @@ export class AnthropicProtocol implements StreamProtocol {
   }
 
   sendCompleted(r: FastifyReply): void {
-    this.ensureTextBlock(r);
-    sendEvent(r, "content_block_stop", {
-      type: "content_block_stop",
-      index: this.textBlockIndex,
-    } satisfies ContentBlockStopEvent);
+    const hadContent =
+      this.textBlockStarted ||
+      this.thinkingBlockStarted ||
+      this.nextBlockIndex > 0;
+    this.closeOpenBlocks(r);
+    if (!hadContent) {
+      this.ensureTextBlock(r);
+      this.closeTextBlock(r);
+    }
     this.sendEpilogue(r, "end_turn");
   }
 
   sendFailed(r: FastifyReply): void {
-    if (this.textBlockStarted) {
-      sendEvent(r, "content_block_stop", {
-        type: "content_block_stop",
-        index: this.textBlockIndex,
-      } satisfies ContentBlockStopEvent);
-    }
+    this.closeOpenBlocks(r);
     this.sendEpilogue(r, "end_turn");
   }
 

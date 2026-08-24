@@ -87,6 +87,11 @@ export function createCommonEventHandler(
       }
 
       case "assistant.message_delta":
+        if (pendingReasoningDeltas.length > 0) {
+          flushReasoningDeltas();
+          const r = getReply();
+          if (r) protocol.reasoningComplete?.(r);
+        }
         if (event.data.deltaContent) {
           deltaCount++;
           pendingDeltas.push(event.data.deltaContent);
@@ -146,6 +151,8 @@ export function runSessionStreaming(
           `Done, wrapping up stream (${String(common.deltaCount)} deltas received)`,
         );
         sessionDone = true;
+        common.flushReasoningDeltas();
+        protocol.reasoningComplete?.(reply);
         common.flushDeltas();
         protocol.sendCompleted(reply);
         protocol.teardown();

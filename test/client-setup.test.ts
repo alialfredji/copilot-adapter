@@ -42,6 +42,7 @@ describe("Codex setup", () => {
     expect(configured).toContain('model_provider = "copilot_harness"');
     expect(configured).toContain('base_url = "http://127.0.0.1:4141/v1"');
     expect(configured).toContain('command = "/opt/copilot-harness"');
+    expect(configured).toContain("model_catalog_json = ");
     expect(configured).toContain(
       '# copilot-harness:replaced model = "personal"',
     );
@@ -87,6 +88,23 @@ describe("Codex setup", () => {
     const configured = await readFile(targetPath, "utf8");
     expect(configured.match(/^model =/gm)).toHaveLength(1);
     expect(configured.match(/^model_provider =/gm)).toHaveLength(1);
+  });
+
+  it("configures the picker without pinning a default model", async () => {
+    const targetPath = await temporaryTarget("config.toml");
+    await setupCodex({
+      scope: "global",
+      binaryPath: "/opt/copilot-harness",
+      port: 4141,
+      catalogPath: "/tmp/copilot-models.json",
+      targetPath,
+    });
+
+    const configured = await readFile(targetPath, "utf8");
+    expect(configured).not.toMatch(/^model =/m);
+    expect(configured).toContain(
+      'model_catalog_json = "/tmp/copilot-models.json"',
+    );
   });
 
   it("keeps existing top-level settings outside the managed provider table", async () => {
@@ -178,6 +196,9 @@ describe("Claude client setup", () => {
       ANTHROPIC_BASE_URL: "http://127.0.0.1:5151",
       ANTHROPIC_MODEL: "claude-sonnet-4.5",
       CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "1",
+      CLAUDE_CODE_USE_FOUNDRY: "0",
+      CLAUDE_CODE_USE_BEDROCK: "0",
+      CLAUDE_CODE_USE_VERTEX: "0",
     });
     expect(configured.apiKeyHelper).toBe(
       '"/Applications/Harness Tool/bin/copilot-harness" token',
@@ -207,10 +228,44 @@ describe("Claude client setup", () => {
       { name: "ANTHROPIC_AUTH_TOKEN", value: "local-secret" },
       { name: "ANTHROPIC_MODEL", value: "claude-opus-4.1" },
       { name: "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", value: "1" },
+      { name: "CLAUDE_CODE_USE_FOUNDRY", value: "0" },
+      { name: "CLAUDE_CODE_USE_BEDROCK", value: "0" },
+      { name: "CLAUDE_CODE_USE_VERTEX", value: "0" },
     ]);
     expect(await readFile(targetPath, "utf8")).toContain(
       "// keep this setting value",
     );
+  });
+
+  it("enables Claude discovery without pinning a model", async () => {
+    const cliTarget = await temporaryTarget("claude-settings.json");
+    await writeFile(cliTarget, '{"env":{"ANTHROPIC_MODEL":"old"}}\n');
+    await setupClaudeCli({
+      binaryPath: "/opt/copilot-harness",
+      port: 4141,
+      targetPath: cliTarget,
+    });
+    const cli = JSON.parse(await readFile(cliTarget, "utf8")) as {
+      env: Record<string, string>;
+    };
+    expect(cli.env.ANTHROPIC_MODEL).toBeUndefined();
+    expect(cli.env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY).toBe("1");
+    expect(cli.env.CLAUDE_CODE_USE_FOUNDRY).toBe("0");
+
+    const vscodeTarget = await temporaryTarget("vscode-settings.json");
+    await setupClaudeVsCode({
+      token: "local-secret",
+      port: 4141,
+      targetPath: vscodeTarget,
+    });
+    const vscode = JSON.parse(await readFile(vscodeTarget, "utf8")) as {
+      "claudeCode.environmentVariables": { name: string }[];
+    };
+    expect(
+      vscode["claudeCode.environmentVariables"].some(
+        (entry) => entry.name === "ANTHROPIC_MODEL",
+      ),
+    ).toBe(false);
   });
 });
 

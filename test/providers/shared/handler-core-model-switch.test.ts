@@ -23,7 +23,7 @@ const AVAILABLE_MODELS: ModelInfo[] = [
   {
     id: "claude-opus-4-5",
     capabilities: { supports: { reasoningEffort: true } },
-    supportedReasoningEfforts: ["high"],
+    supportedReasoningEfforts: ["low", "high"],
   },
 ] as ModelInfo[];
 
@@ -63,12 +63,14 @@ function mockReply(): { reply: unknown } {
 interface TestReq {
   model: string;
   stream?: boolean;
+  effort?: string;
 }
 
 function createPipeline(): HandlerPipeline<TestReq> {
   return {
     sendError: vi.fn(),
     extractSystemMessage: () => undefined,
+    extractReasoningEffort: (req) => req.effort,
     formatPrompt: () => "test prompt",
     messageCount: () => 1,
     stream: vi.fn().mockResolvedValue(true),
@@ -137,8 +139,11 @@ describe("model switching on reuse", () => {
     ) as typeof handler;
   });
 
-  async function switchTo(model: string): Promise<void> {
-    await handler({ model }, mockReply().reply as never);
+  async function switchTo(model: string, effort?: string): Promise<void> {
+    await handler(
+      { model, ...(effort ? { effort } : {}) },
+      mockReply().reply as never,
+    );
   }
 
   it("calls setModel and updates conversation.model when models differ", async () => {
@@ -196,6 +201,68 @@ describe("model switching on reuse", () => {
     expect(setModel).toHaveBeenCalledWith("claude-opus-4-5", {
       reasoningEffort: "high",
     });
+  });
+
+  it("switches reasoning effort without changing the model", async () => {
+    const mock = mockSession();
+    setModel = mock.setModel;
+    const conv = createConversation({
+      model: "claude-opus-4-5",
+      session: mock.session,
+    });
+    conv.reasoningEffort = "low";
+    const mgr: ConversationManager = {
+      findForNewRequest: () => ({ conversation: conv, isReuse: true }),
+      remove: vi.fn(),
+      clearPrimary: vi.fn(),
+    };
+    const switchHandler = runHandlerPipeline(
+      createCtx(),
+      mgr,
+      createPipeline(),
+    ) as typeof handler;
+
+    await switchHandler(
+      { model: "claude-opus-4-5", effort: "high" },
+      mockReply().reply as never,
+    );
+
+    expect(setModel).toHaveBeenCalledWith("claude-opus-4-5", {
+      reasoningEffort: "high",
+    });
+    expect(conv.reasoningEffort).toBe("high");
+  });
+
+  it("rejects an effort the selected model does not advertise", async () => {
+    const pipeline = createPipeline();
+    const mock = mockSession();
+    const conv = createConversation({
+      model: "claude-opus-4-5",
+      session: mock.session,
+    });
+    const mgr: ConversationManager = {
+      findForNewRequest: () => ({ conversation: conv, isReuse: true }),
+      remove: vi.fn(),
+      clearPrimary: vi.fn(),
+    };
+    const switchHandler = runHandlerPipeline(
+      createCtx(),
+      mgr,
+      pipeline,
+    ) as typeof handler;
+
+    await switchHandler(
+      { model: "claude-opus-4-5", effort: "xhigh" },
+      mockReply().reply as never,
+    );
+
+    expect(mock.setModel).not.toHaveBeenCalled();
+    expect(pipeline.sendError).toHaveBeenCalledWith(
+      expect.anything(),
+      400,
+      "invalid_request_error",
+      expect.stringContaining("Supported efforts: low, high"),
+    );
   });
 
   it("resolves model family fallback before switching", async () => {
