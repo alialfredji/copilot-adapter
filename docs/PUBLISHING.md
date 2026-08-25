@@ -21,6 +21,15 @@ npm whoami
 
 `npm whoami` must print an account that can publish under `@alialf`.
 
+If npm reports root-owned files in its default cache, avoid publishing with
+`sudo`. Use a temporary user-owned cache instead:
+
+```bash
+mkdir -p /tmp/copilot-adapter-npm-cache
+npm --cache /tmp/copilot-adapter-npm-cache login
+npm --cache /tmp/copilot-adapter-npm-cache whoami
+```
+
 ## 1. Review the release
 
 From a clean `main` branch:
@@ -42,8 +51,11 @@ The first publish creates the npm package so its trusted publisher can then be
 configured:
 
 ```bash
-npm publish --access public
+npm --cache /tmp/copilot-adapter-npm-cache publish --access public
 ```
+
+If the default npm cache works normally, plain `npm login` and `npm publish
+--access public` are equivalent.
 
 npm requires either publishing 2FA or a granular token allowed to bypass 2FA.
 Enter the one-time password if prompted.
