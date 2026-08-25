@@ -112,6 +112,12 @@ Undo:
 copilot-harness setup claude-vscode --remove
 ```
 
+Setup stores the exact original file beside the managed configuration as
+`*.copilot-harness.backup`; a small `*.copilot-harness.backup.meta.json` sidecar
+preserves whether the file existed and its permissions. `--remove` always
+restores that snapshot, even if the managed file changed afterward. Legacy
+base64 backups remain restorable.
+
 ## Claude Desktop Code tab
 
 ```bash

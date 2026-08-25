@@ -47,6 +47,7 @@ describe("Codex setup", () => {
       '# copilot-harness:replaced model = "personal"',
     );
     expect((await stat(result.backupPath)).mode & 0o777).toBe(0o600);
+    expect(await readFile(result.backupPath, "utf8")).toBe(original);
 
     expect(await restoreClientSetup(targetPath)).toBe(true);
     expect(await readFile(targetPath, "utf8")).toBe(original);
@@ -150,7 +151,7 @@ describe("Codex setup", () => {
     expect(await readFile(targetPath, "utf8")).toBe(original);
   });
 
-  it("refuses setup and restore after user edits the managed file", async () => {
+  it("restores the original after user edits the managed file", async () => {
     const targetPath = await temporaryTarget("config.toml");
     await writeFile(targetPath, 'approval_policy = "on-request"\n');
     const options = {
@@ -164,21 +165,20 @@ describe("Codex setup", () => {
     const edited = `${await readFile(targetPath, "utf8")}\n# user edit\n`;
     await writeFile(targetPath, edited);
 
-    await expect(setupCodex(options)).rejects.toThrow("changed after");
-    await expect(restoreClientSetup(targetPath)).rejects.toThrow(
-      "changed after",
+    await setupCodex(options);
+    expect(await restoreClientSetup(targetPath)).toBe(true);
+    expect(await readFile(targetPath, "utf8")).toBe(
+      'approval_policy = "on-request"\n',
     );
-    expect(await readFile(targetPath, "utf8")).toBe(edited);
   });
 });
 
 describe("Claude client setup", () => {
   it("preserves unrelated Claude CLI settings and uses the credential helper", async () => {
     const targetPath = await temporaryTarget("settings.json");
-    await writeFile(
-      targetPath,
-      '{"permissions":{"allow":["Read"]},"env":{"KEEP":"yes"}}\n',
-    );
+    const original =
+      '{"permissions":{"allow":["Read"]},"env":{"KEEP":"yes"}}\n';
+    await writeFile(targetPath, original);
 
     await setupClaudeCli({
       binaryPath: "/Applications/Harness Tool/bin/copilot-harness",
@@ -203,6 +203,10 @@ describe("Claude client setup", () => {
     expect(configured.apiKeyHelper).toBe(
       '"/Applications/Harness Tool/bin/copilot-harness" token',
     );
+
+    await writeFile(targetPath, '{"changed":true}\n');
+    expect(await restoreClientSetup(targetPath)).toBe(true);
+    expect(await readFile(targetPath, "utf8")).toBe(original);
   });
 
   it("updates VS Code JSONC without losing unrelated settings or variables", async () => {
@@ -270,18 +274,16 @@ describe("Claude client setup", () => {
 });
 
 describe("setup validation", () => {
-  it("refuses automatic restore from a legacy backup without a checksum", async () => {
+  it("restores a changed file from a legacy v2 backup despite a checksum mismatch", async () => {
     const targetPath = await temporaryTarget("settings.json");
     await writeFile(targetPath, '{"managed":true}\n');
     await writeFile(
       `${targetPath}.copilot-harness.backup.json`,
-      `${JSON.stringify({ version: 1, existed: true, contentBase64: Buffer.from("{}\n").toString("base64") })}\n`,
+      `${JSON.stringify({ version: 2, existed: true, installedSha256: "outdated", contentBase64: Buffer.from("{}\n").toString("base64") })}\n`,
     );
 
-    await expect(restoreClientSetup(targetPath)).rejects.toThrow(
-      "legacy backup",
-    );
-    expect(await readFile(targetPath, "utf8")).toBe('{"managed":true}\n');
+    expect(await restoreClientSetup(targetPath)).toBe(true);
+    expect(await readFile(targetPath, "utf8")).toBe("{}\n");
   });
 
   it("rejects a relative credential-helper path before writing", async () => {

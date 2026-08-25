@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import {
   chmod,
   mkdir,
@@ -21,7 +21,9 @@ const SELECTION_START_MARKER = "# copilot-harness:selection-start";
 const SELECTION_END_MARKER = "# copilot-harness:selection-end";
 const PROVIDER_START_MARKER = "# copilot-harness:provider-start";
 const PROVIDER_END_MARKER = "# copilot-harness:provider-end";
-const BACKUP_SUFFIX = ".copilot-harness.backup.json";
+const BACKUP_SUFFIX = ".copilot-harness.backup";
+const BACKUP_METADATA_SUFFIX = ".copilot-harness.backup.meta.json";
+const LEGACY_BACKUP_SUFFIX = ".copilot-harness.backup.json";
 
 export type SetupResult = {
   targetPath: string;
@@ -51,12 +53,18 @@ export type ClaudeVsCodeSetupOptions = {
   targetPath?: string;
 };
 
-type BackupRecord = {
+type LegacyBackupRecord = {
   version: 1 | 2;
   existed: boolean;
   contentBase64?: string;
   mode?: number;
   installedSha256?: string;
+};
+
+type BackupMetadata = {
+  version: 3;
+  existed: boolean;
+  mode?: number;
 };
 
 type JsonObject = Record<string, unknown>;
@@ -120,65 +128,72 @@ async function atomicWrite(
 async function saveBackup(
   targetPath: string,
   original: Awaited<ReturnType<typeof readOriginal>>,
-  installedContent: string,
 ): Promise<string> {
   const backupPath = `${targetPath}${BACKUP_SUFFIX}`;
-  const installedSha256 = contentSha256(installedContent);
-  const record: BackupRecord = {
-    version: 2,
+  const metadataPath = `${targetPath}${BACKUP_METADATA_SUFFIX}`;
+  const legacyBackupPath = `${targetPath}${LEGACY_BACKUP_SUFFIX}`;
+  const metadata: BackupMetadata = {
+    version: 3,
     existed: original.existed,
-    installedSha256,
-    ...(original.existed && {
-      contentBase64: original.content.toString("base64"),
-      ...(original.mode !== undefined && { mode: original.mode }),
-    }),
+    ...(original.mode !== undefined && { mode: original.mode }),
   };
 
   try {
-    await writeFile(backupPath, `${JSON.stringify(record, null, 2)}\n`, {
+    const existing = parseBackupMetadata(await readFile(metadataPath, "utf8"));
+    if (existing.existed) await readFile(backupPath);
+    return backupPath;
+  } catch (error: unknown) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
+      throw error;
+  }
+
+  try {
+    await readFile(legacyBackupPath);
+    throw new Error(
+      `Existing legacy backup ${legacyBackupPath} must be restored with --remove before running setup again`,
+    );
+  } catch (error: unknown) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
+      throw error;
+  }
+
+  let wroteBackup = false;
+  try {
+    if (original.existed) {
+      await writeFile(backupPath, original.content, {
+        mode: 0o600,
+        flag: "wx",
+      });
+      wroteBackup = true;
+    }
+    await writeFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, {
       mode: 0o600,
       flag: "wx",
     });
-  } catch (error: unknown) {
-    if (!(error instanceof Error && "code" in error && error.code === "EEXIST"))
-      throw error;
-
-    const existing = parseBackup(await readFile(backupPath, "utf8"));
-    if (existing.version !== 2 || !existing.installedSha256) {
-      throw new Error(
-        `Existing backup ${backupPath} predates safe rollback checks; restore it manually after reviewing both files, then delete the backup before running setup again`,
-        { cause: error },
-      );
-    }
-    if (contentSha256(original.content) !== existing.installedSha256) {
-      throw new Error(
-        `Refusing to overwrite ${targetPath}: it changed after Copilot Harness setup. Preserve or revert those edits before setup/remove`,
-        { cause: error },
-      );
-    }
-    await atomicWrite(
-      backupPath,
-      `${JSON.stringify({ ...existing, installedSha256 }, null, 2)}\n`,
-      0o600,
-    );
+  } catch (error) {
+    if (wroteBackup) await unlink(backupPath).catch(() => undefined);
+    throw error;
   }
   return backupPath;
 }
 
-function contentSha256(content: string | Buffer): string {
-  return createHash("sha256").update(content).digest("hex");
-}
-
-function parseBackup(source: string): BackupRecord {
-  const record = JSON.parse(source) as BackupRecord;
+function parseLegacyBackup(source: string): LegacyBackupRecord {
+  const record = JSON.parse(source) as LegacyBackupRecord;
   if (
     (record.version !== 1 && record.version !== 2) ||
-    typeof record.existed !== "boolean" ||
-    (record.version === 2 && typeof record.installedSha256 !== "string")
+    typeof record.existed !== "boolean"
   ) {
     throw new Error("Invalid Copilot Harness backup");
   }
   return record;
+}
+
+function parseBackupMetadata(source: string): BackupMetadata {
+  const metadata = JSON.parse(source) as BackupMetadata;
+  if (metadata.version !== 3 || typeof metadata.existed !== "boolean") {
+    throw new Error("Invalid Copilot Harness backup metadata");
+  }
+  return metadata;
 }
 
 async function installConfig(
@@ -188,7 +203,7 @@ async function installConfig(
   const original = await readOriginal(targetPath);
   const output = transform(original.content.toString("utf8"));
   await mkdir(dirname(targetPath), { recursive: true });
-  const backupPath = await saveBackup(targetPath, original, output);
+  const backupPath = await saveBackup(targetPath, original);
   await atomicWrite(targetPath, output, 0o600);
   return { targetPath, backupPath };
 }
@@ -413,9 +428,36 @@ export async function setupClaudeVsCode(
 
 export async function restoreClientSetup(targetPath: string): Promise<boolean> {
   const backupPath = `${targetPath}${BACKUP_SUFFIX}`;
-  let record: BackupRecord;
+  const metadataPath = `${targetPath}${BACKUP_METADATA_SUFFIX}`;
+  const legacyBackupPath = `${targetPath}${LEGACY_BACKUP_SUFFIX}`;
+  let metadata: BackupMetadata;
   try {
-    record = parseBackup(await readFile(backupPath, "utf8"));
+    metadata = parseBackupMetadata(await readFile(metadataPath, "utf8"));
+  } catch (error: unknown) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
+      throw error;
+
+    return restoreLegacyBackup(targetPath, legacyBackupPath);
+  }
+
+  if (metadata.existed) {
+    const original = await readFile(backupPath);
+    await atomicWrite(targetPath, original, metadata.mode ?? 0o600);
+  } else {
+    await unlinkIfPresent(targetPath);
+  }
+  await unlink(metadataPath);
+  await unlinkIfPresent(backupPath);
+  return true;
+}
+
+async function restoreLegacyBackup(
+  targetPath: string,
+  backupPath: string,
+): Promise<boolean> {
+  let record: LegacyBackupRecord;
+  try {
+    record = parseLegacyBackup(await readFile(backupPath, "utf8"));
   } catch (error: unknown) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return false;
@@ -423,17 +465,6 @@ export async function restoreClientSetup(targetPath: string): Promise<boolean> {
     throw error;
   }
 
-  if (record.version === 1) {
-    throw new Error(
-      `Refusing automatic restore from legacy backup ${backupPath}: it has no edit-safety checksum. Review and restore it manually`,
-    );
-  }
-  const current = await readOriginal(targetPath);
-  if (contentSha256(current.content) !== record.installedSha256) {
-    throw new Error(
-      `Refusing to restore ${targetPath}: it changed after Copilot Harness setup. Preserve or revert those edits first`,
-    );
-  }
   if (record.existed) {
     if (record.contentBase64 === undefined) {
       throw new Error("Invalid Copilot Harness backup: missing content");
@@ -444,14 +475,18 @@ export async function restoreClientSetup(targetPath: string): Promise<boolean> {
       record.mode ?? 0o600,
     );
   } else {
-    await unlink(targetPath).catch((error: unknown) => {
-      if (
-        !(error instanceof Error && "code" in error && error.code === "ENOENT")
-      ) {
-        throw error;
-      }
-    });
+    await unlinkIfPresent(targetPath);
   }
   await unlink(backupPath);
   return true;
+}
+
+async function unlinkIfPresent(targetPath: string): Promise<void> {
+  await unlink(targetPath).catch((error: unknown) => {
+    if (
+      !(error instanceof Error && "code" in error && error.code === "ENOENT")
+    ) {
+      throw error;
+    }
+  });
 }
