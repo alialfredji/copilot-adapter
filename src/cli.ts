@@ -92,7 +92,7 @@ async function syncCodexModels(
     const auth = await service.getAuthStatus();
     if (!auth.isAuthenticated) {
       throw new Error(
-        "GitHub authentication is required; run `copilot-harness login` first",
+        "GitHub authentication is required; run `copilot-adapter login` first",
       );
     }
     return await writeCodexCatalog(await service.listModels(), targetPath);
@@ -184,7 +184,7 @@ async function startServer(options: StartOptions): Promise<void> {
 
   if (!quiet) {
     console.log();
-    console.log(`  ${bold("copilot-harness")} ${dim(`v${version}`)}`);
+    console.log(`  ${bold("copilot-adapter")} ${dim(`v${version}`)}`);
     console.log();
   }
 
@@ -329,7 +329,7 @@ async function startServer(options: StartOptions): Promise<void> {
 }
 
 const program = new Command()
-  .name("copilot-harness")
+  .name("copilot-adapter")
   .description("Secure local GitHub Copilot adapter for Codex and Claude Code")
   .version(version, "-v, --version");
 
@@ -363,7 +363,7 @@ program
     );
     if (options.rotate) {
       console.error(
-        "Token rotated. Codex/Claude CLI update automatically; rerun `copilot-harness setup claude-vscode` and update Claude Desktop's API key.",
+        "Token rotated. Codex/Claude CLI update automatically; rerun `copilot-adapter setup claude-vscode` and update Claude Desktop's API key.",
       );
     }
   });
@@ -455,7 +455,7 @@ setup
   .option("--catalog <path>", "Codex model catalog output path")
   .option("--scope <scope>", "profile or global", "profile")
   .option("-p, --port <number>", "adapter port", "4141")
-  .option("--binary <path>", "absolute installed copilot-harness path")
+  .option("--binary <path>", "absolute installed copilot-adapter path")
   .option("--remove", "restore the exact pre-setup configuration")
   .action(
     async (options: {
@@ -506,7 +506,7 @@ setup
   )
   .option("--model <id>", "deprecated alias for --default-model")
   .option("-p, --port <number>", "adapter port", "4141")
-  .option("--binary <path>", "absolute installed copilot-harness path")
+  .option("--binary <path>", "absolute installed copilot-adapter path")
   .option("--remove", "restore the exact pre-setup configuration")
   .action(
     async (options: {
@@ -581,7 +581,7 @@ setup
     console.log(`Base URL: http://127.0.0.1:${String(port)}`);
     console.log("Credential kind: Static API key");
     console.log("Auth scheme: Bearer");
-    console.log("API key: run `copilot-harness token`");
+    console.log("API key: run `copilot-adapter token`");
   });
 
 program.parseAsync().catch((err: unknown) => {

@@ -1,11 +1,11 @@
-# copilot-sdk-proxy architecture
+# Copilot Adapter architecture
 
 A proxy server that sits between API clients and the GitHub Copilot SDK. Clients send requests using OpenAI, Anthropic, or Codex wire formats and the proxy translates them into Copilot SDK sessions, streaming responses back in the matching protocol.
 
 ```mermaid
 flowchart LR
-    Client["API client<br/>(Xcode, Claude CLI, Codex CLI)"]
-    Proxy["copilot-sdk-proxy<br/>(Fastify)"]
+    Client["API client<br/>(Claude Code / Codex)"]
+    Proxy["@alialf/copilot-adapter<br/>(Fastify)"]
     SDK["Copilot SDK<br/>(@github/copilot-sdk)"]
 
     Client <-->|"OpenAI / Anthropic / Codex<br/>wire formats"| Proxy
@@ -77,10 +77,10 @@ If the primary encounters an error, it's cleared and a fresh one gets created on
 [`resolveModel()`](../src/providers/shared/model-resolver.ts#L23) maps requested model IDs to what's actually available in Copilot. It tries three strategies in order:
 
 1. Exact match
-2. Normalized match (strips date suffixes, replaces dots with hyphens)
-3. Family fallback (finds the closest model in the same family by longest common prefix)
+2. Normalized match that strips date suffixes and replaces dots with hyphens
 
-This means a request for `claude-opus-4-6` works even if Copilot only has `claude-opus-4-5-20250501`.
+Unavailable models are rejected with the current catalog. The adapter never
+silently substitutes another model family or version.
 
 ## Streaming
 

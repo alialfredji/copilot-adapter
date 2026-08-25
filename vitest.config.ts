@@ -13,7 +13,7 @@ export default defineConfig({
     environment: "node",
   },
   resolve: {
-    conditions: ["copilot-sdk-proxy-dev"],
+    conditions: ["copilot-adapter-dev"],
     alias: [
       {
         find: /^#(.+)\.js$/,

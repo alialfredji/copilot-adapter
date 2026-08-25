@@ -61,7 +61,7 @@ export function createSessionConfig({
   provider,
 }: SessionConfigOptions): SessionConfig {
   return {
-    clientName: "copilot-harness-adapter",
+    clientName: "copilot-adapter",
     model,
     streaming: true,
     includeSubAgentStreamingEvents: false,

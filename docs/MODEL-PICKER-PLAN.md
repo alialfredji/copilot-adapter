@@ -1,6 +1,8 @@
-# Native model picker plan
+# Native model picker implementation record
 
-Status: implemented in the local/CLI/Desktop/VS Code configuration phase. Hosted cloud gateway work remains a later phase.
+Status: implemented. This document is retained as the historical design record;
+the README and client getting-started guide describe current usage. Hosted cloud
+gateway work remains a later phase.
 
 ## Decision
 
@@ -37,7 +39,7 @@ Claude Code gateways. We will not disguise those models with fake Claude IDs.
 
 ### 2. Codex catalog generator
 
-- Add `copilot-harness models sync`.
+- Add `copilot-adapter models sync`.
 - Generate `~/.copilot-harness/codex-models.json` from the live registry.
 - Add `model_catalog_json` and the Copilot provider to the user-level Codex
   configuration.

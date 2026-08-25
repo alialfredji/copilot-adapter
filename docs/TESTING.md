@@ -1,4 +1,11 @@
-# Integration test architecture
+# Legacy BYOK integration test architecture
+
+The BYOK integration files described below are retained for future use but are
+currently excluded by `vitest.config.ts`: Copilot SDK 1.0.8 rejects their
+insecure localhost mock transport. The release gate uses the deterministic unit
+suite covering the protocol translators, configuration, security, model
+selection, streaming, and client setup. Use the live smoke test in the README
+for an end-to-end Copilot verification.
 
 The integration tests verify the full request pipeline. An HTTP client sends a request to the proxy, the proxy creates a Copilot SDK session that talks to a mock LLM server, and the proxy streams the response back in the correct SSE format.
 

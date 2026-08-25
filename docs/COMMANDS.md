@@ -1,13 +1,14 @@
 # Command Reference
 
-All commands assume the repository is:
+Install the published package once:
 
 ```bash
-cd /Users/alialfredji/dev/vibe-code/copilot-harness-adapter
+npm install --global @alialf/copilot-adapter
 ```
 
-After `npm link`, use `copilot-harness`. Without linking, replace it with
-`node dist/cli.js` in every example.
+The primary command is `copilot-adapter`. The legacy `copilot-harness` alias is
+also installed. For source development, run `npm ci`, `npm run build`, and `npm
+link` from a clone of the repository.
 
 ## Install and authenticate
 
@@ -15,13 +16,11 @@ After `npm link`, use `copilot-harness`. Without linking, replace it with
 node --version                    # Requires Node.js 22.12+
 gh auth status
 gh auth login
-npm install
-npm run build
-npm link
-copilot-harness login             # Authenticate through GitHub CLI
-copilot-harness doctor            # Check all local prerequisites
-copilot-harness --version
-copilot-harness --help
+npm install --global @alialf/copilot-adapter
+copilot-adapter login             # Authenticate through GitHub CLI
+copilot-adapter doctor            # Check all local prerequisites
+copilot-adapter --version
+copilot-adapter --help
 ```
 
 The GitHub organization must enable Copilot CLI and assign the user a Copilot
@@ -32,24 +31,24 @@ Business or Enterprise seat.
 Run this from the repository the clients should access:
 
 ```bash
-copilot-harness start --cwd "$PWD"
-copilot-harness start --cwd "$PWD" --port 4141 --policy read-only
-copilot-harness start --cwd "$PWD" --policy workspace-write
-copilot-harness start --cwd "$PWD" --policy chat
-copilot-harness start --cwd "$PWD" --policy unsafe-shell
-copilot-harness start --cwd "$PWD" --policy unsafe-all
+copilot-adapter start --cwd "$PWD"
+copilot-adapter start --cwd "$PWD" --port 4141 --policy read-only
+copilot-adapter start --cwd "$PWD" --policy workspace-write
+copilot-adapter start --cwd "$PWD" --policy chat
+copilot-adapter start --cwd "$PWD" --policy unsafe-shell
+copilot-adapter start --cwd "$PWD" --policy unsafe-all
 ```
 
 Additional start options:
 
 ```bash
-copilot-harness start --provider openai
-copilot-harness start --provider claude
-copilot-harness start --provider codex
-copilot-harness start --log-level debug
-copilot-harness start --config /absolute/path/config.json5
-copilot-harness start --idle-timeout 30
-copilot-harness start --help
+copilot-adapter start --provider openai
+copilot-adapter start --provider claude
+copilot-adapter start --provider codex
+copilot-adapter start --log-level debug
+copilot-adapter start --config /absolute/path/config.json5
+copilot-adapter start --idle-timeout 30
+copilot-adapter start --help
 ```
 
 Policies:
@@ -65,16 +64,16 @@ Stop the foreground adapter with `Ctrl+C`.
 ## Inspect the running adapter
 
 ```bash
-copilot-harness status
-copilot-harness status --models
-copilot-harness status --port 4141
+copilot-adapter status
+copilot-adapter status --models
+copilot-adapter status --port 4141
 ```
 
 ## Local adapter token
 
 ```bash
-copilot-harness token             # Print the localhost bearer token
-copilot-harness token --rotate    # Replace it
+copilot-adapter token             # Print the localhost bearer token
+copilot-adapter token --rotate    # Replace it
 ```
 
 The token authenticates localhost requests only; it is not a GitHub token.
@@ -82,9 +81,9 @@ The token authenticates localhost requests only; it is not a GitHub token.
 ## Model catalogs
 
 ```bash
-copilot-harness models sync
-copilot-harness models sync --output /absolute/path/models.json
-copilot-harness models sync --help
+copilot-adapter models sync
+copilot-adapter models sync --output /absolute/path/models.json
+copilot-adapter models sync --help
 ```
 
 Restart Codex after syncing because it loads the catalog at startup. The
@@ -93,17 +92,17 @@ adapter itself does not need restarting to switch models.
 ## Codex CLI profile
 
 ```bash
-copilot-harness setup codex --scope profile
+copilot-adapter setup codex --scope profile
 codex --profile copilot
 ```
 
 Optional setup arguments:
 
 ```bash
-copilot-harness setup codex --scope profile --port 4141
-copilot-harness setup codex --scope profile --default-model MODEL_ID
-copilot-harness setup codex --scope profile --catalog /absolute/path/models.json
-copilot-harness setup codex --scope profile --binary /absolute/path/copilot-harness
+copilot-adapter setup codex --scope profile --port 4141
+copilot-adapter setup codex --scope profile --default-model MODEL_ID
+copilot-adapter setup codex --scope profile --catalog /absolute/path/models.json
+copilot-adapter setup codex --scope profile --binary /absolute/path/copilot-adapter
 ```
 
 Inside Codex:
@@ -116,7 +115,7 @@ Inside Codex:
 Undo:
 
 ```bash
-copilot-harness setup codex --scope profile --remove
+copilot-adapter setup codex --scope profile --remove
 ```
 
 The profile is `~/.codex/copilot.config.toml`. If it did not exist before
@@ -125,7 +124,7 @@ setup, removal deletes it.
 ## Codex Desktop and VS Code extension
 
 ```bash
-copilot-harness setup codex --scope global
+copilot-adapter setup codex --scope global
 ```
 
 Restart Codex Desktop or reload VS Code, select a local task, and open the same
@@ -134,7 +133,7 @@ folder passed to `--cwd`. Codex cloud tasks cannot reach a localhost adapter.
 Undo:
 
 ```bash
-copilot-harness setup codex --scope global --remove
+copilot-adapter setup codex --scope global --remove
 ```
 
 The global configuration is `~/.codex/config.toml`.
@@ -142,16 +141,16 @@ The global configuration is `~/.codex/config.toml`.
 ## Claude Code CLI
 
 ```bash
-copilot-harness setup claude-cli
+copilot-adapter setup claude-cli
 claude
 ```
 
 Optional setup arguments:
 
 ```bash
-copilot-harness setup claude-cli --port 4141
-copilot-harness setup claude-cli --default-model MODEL_ID
-copilot-harness setup claude-cli --binary /absolute/path/copilot-harness
+copilot-adapter setup claude-cli --port 4141
+copilot-adapter setup claude-cli --default-model MODEL_ID
+copilot-adapter setup claude-cli --binary /absolute/path/copilot-adapter
 ```
 
 Inside Claude Code:
@@ -168,7 +167,7 @@ Claude/Anthropic-family models.
 Undo:
 
 ```bash
-copilot-harness setup claude-cli --remove
+copilot-adapter setup claude-cli --remove
 ```
 
 The configuration is `~/.claude/settings.json`.
@@ -176,9 +175,9 @@ The configuration is `~/.claude/settings.json`.
 ## Claude Code VS Code extension
 
 ```bash
-copilot-harness setup claude-vscode
-copilot-harness setup claude-vscode --port 4141
-copilot-harness setup claude-vscode --default-model MODEL_ID
+copilot-adapter setup claude-vscode
+copilot-adapter setup claude-vscode --port 4141
+copilot-adapter setup claude-vscode --default-model MODEL_ID
 ```
 
 Reload the VS Code window, then use `/model` and `/effort`.
@@ -186,15 +185,15 @@ Reload the VS Code window, then use `/model` and `/effort`.
 Undo:
 
 ```bash
-copilot-harness setup claude-vscode --remove
+copilot-adapter setup claude-vscode --remove
 ```
 
 ## Claude Desktop Code tab
 
 ```bash
-copilot-harness setup claude-desktop
-copilot-harness setup claude-desktop --port 4141
-copilot-harness token
+copilot-adapter setup claude-desktop
+copilot-adapter setup claude-desktop --port 4141
+copilot-adapter token
 ```
 
 Configure Claude Desktop with the printed gateway fields:
@@ -204,7 +203,7 @@ Configure Claude Desktop with the printed gateway fields:
 3. Select `Gateway`.
 4. Use `http://127.0.0.1:4141` without `/v1`.
 5. Select a static API key with the `Bearer` scheme.
-6. Paste the output from `copilot-harness token`.
+6. Paste the output from `copilot-adapter token`.
 
 ## Backup and rollback verification
 
@@ -222,10 +221,10 @@ snapshot even when the managed file changed, then consumes both backup files.
 Verify rollback:
 
 ```bash
-copilot-harness setup claude-cli
+copilot-adapter setup claude-cli
 shasum -a 256 ~/.claude/settings.json.copilot-harness.backup
 # Add a harmless blank line to ~/.claude/settings.json.
-copilot-harness setup claude-cli --remove
+copilot-adapter setup claude-cli --remove
 shasum -a 256 ~/.claude/settings.json
 ```
 
@@ -258,15 +257,15 @@ npm run build
 ## Discover command-specific options
 
 ```bash
-copilot-harness start --help
-copilot-harness token --help
-copilot-harness status --help
-copilot-harness models --help
-copilot-harness models sync --help
-copilot-harness setup --help
-copilot-harness setup codex --help
-copilot-harness setup claude-cli --help
-copilot-harness setup claude-vscode --help
-copilot-harness setup claude-desktop --help
-copilot-harness doctor --help
+copilot-adapter start --help
+copilot-adapter token --help
+copilot-adapter status --help
+copilot-adapter models --help
+copilot-adapter models sync --help
+copilot-adapter setup --help
+copilot-adapter setup codex --help
+copilot-adapter setup claude-cli --help
+copilot-adapter setup claude-vscode --help
+copilot-adapter setup claude-desktop --help
+copilot-adapter doctor --help
 ```

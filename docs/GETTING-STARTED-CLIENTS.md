@@ -12,14 +12,10 @@ Choose the section you need. You do not need to configure every client.
 ## 1. One-time adapter installation
 
 ```bash
-cd /Users/alialfredji/dev/vibe-code/copilot-harness-adapter
-
 node --version          # Requires Node.js 22.12+
 gh auth status          # Run `gh auth login` if needed
-npm install
-npm run build
-npm link
-copilot-harness doctor
+npm install --global @alialf/copilot-adapter
+copilot-adapter doctor
 ```
 
 Requirements:
@@ -28,8 +24,8 @@ Requirements:
 - Copilot CLI enabled by the GitHub organization
 - Codex or Claude installed for the surface you want to use
 
-Without `npm link`, replace `copilot-harness` with `node dist/cli.js` and run it
-from the adapter repository.
+For source development instead, clone the repository, run `npm ci`, `npm run
+build`, and `npm link`.
 
 ## 2. Start the adapter for your project
 
@@ -37,7 +33,7 @@ Open a terminal in the project you want the client to access:
 
 ```bash
 cd /path/to/your/project
-copilot-harness start \
+copilot-adapter start \
   --cwd "$PWD" \
   --port 4141 \
   --policy workspace-write
@@ -47,7 +43,7 @@ Keep this terminal running. In a second terminal, verify the connection and
 available models:
 
 ```bash
-copilot-harness status --models
+copilot-adapter status --models
 ```
 
 Use `--policy read-only` instead if you do not want the adapter to edit files.
@@ -59,7 +55,7 @@ Use `--policy read-only` instead if you do not want the adapter to edit files.
 ### Configure
 
 ```bash
-copilot-harness setup codex --scope profile
+copilot-adapter setup codex --scope profile
 ```
 
 ### Start
@@ -85,7 +81,7 @@ then send a test prompt. Switching does not require restarting the adapter.
 ### Undo
 
 ```bash
-copilot-harness setup codex --scope profile --remove
+copilot-adapter setup codex --scope profile --remove
 ```
 
 ---
@@ -95,7 +91,7 @@ copilot-harness setup codex --scope profile --remove
 ### Configure
 
 ```bash
-copilot-harness setup codex --scope global
+copilot-adapter setup codex --scope global
 ```
 
 ### Start
@@ -111,7 +107,7 @@ The adapter must remain running. Cloud tasks cannot reach `127.0.0.1`.
 ### Undo
 
 ```bash
-copilot-harness setup codex --scope global --remove
+copilot-adapter setup codex --scope global --remove
 ```
 
 Restart Codex Desktop after removal.
@@ -125,7 +121,7 @@ Restart Codex Desktop after removal.
 Codex Desktop and the Codex VS Code extension use the same global setup:
 
 ```bash
-copilot-harness setup codex --scope global
+copilot-adapter setup codex --scope global
 ```
 
 ### Start
@@ -140,7 +136,7 @@ copilot-harness setup codex --scope global
 ### Undo
 
 ```bash
-copilot-harness setup codex --scope global --remove
+copilot-adapter setup codex --scope global --remove
 ```
 
 Reload VS Code after removal.
@@ -152,7 +148,7 @@ Reload VS Code after removal.
 ### Configure
 
 ```bash
-copilot-harness setup claude-cli
+copilot-adapter setup claude-cli
 ```
 
 ### Start
@@ -180,7 +176,7 @@ Claude/Anthropic-family Copilot models.
 ### Undo
 
 ```bash
-copilot-harness setup claude-cli --remove
+copilot-adapter setup claude-cli --remove
 ```
 
 ---
@@ -192,8 +188,8 @@ This works in Claude Desktop's **Code tab**, not regular Chat or Cowork.
 ### Print the connection values
 
 ```bash
-copilot-harness setup claude-desktop
-copilot-harness token
+copilot-adapter setup claude-desktop
+copilot-adapter token
 ```
 
 ### Configure Claude Desktop
@@ -204,7 +200,7 @@ copilot-harness token
 4. Set Base URL to `http://127.0.0.1:4141` without `/v1`.
 5. Set Credential kind to `Static API key`.
 6. Set Auth scheme to `Bearer`.
-7. Paste the output from `copilot-harness token` as the API key.
+7. Paste the output from `copilot-adapter token` as the API key.
 8. Open the **Code** tab.
 9. Select the same project folder passed to `--cwd`.
 10. Choose a discovered Claude-family model and send a test prompt.
@@ -224,7 +220,7 @@ Developer settings.
 ### Configure
 
 ```bash
-copilot-harness setup claude-vscode
+copilot-adapter setup claude-vscode
 ```
 
 ### Start
@@ -246,7 +242,7 @@ copilot-harness setup claude-vscode
 ### Undo
 
 ```bash
-copilot-harness setup claude-vscode --remove
+copilot-adapter setup claude-vscode --remove
 ```
 
 Reload VS Code after removal.
@@ -258,7 +254,7 @@ Reload VS Code after removal.
 After the GitHub organization changes its Copilot model policy:
 
 ```bash
-copilot-harness models sync
+copilot-adapter models sync
 ```
 
 Restart Codex or reload its VS Code extension afterward. Claude discovers its
@@ -280,6 +276,6 @@ backup files.
 
 ## Stop the adapter
 
-Press `Ctrl+C` in the terminal running `copilot-harness start`.
+Press `Ctrl+C` in the terminal running `copilot-adapter start`.
 
 For every available option and maintenance command, see [COMMANDS.md](COMMANDS.md).
