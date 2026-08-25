@@ -2,6 +2,8 @@
 
 Local GitHub Copilot Business adapter for **Codex** and **Claude Code**. It translates Codex's Responses API and Claude's Messages API into official `@github/copilot-sdk` sessions.
 
+See [docs/COMMANDS.md](docs/COMMANDS.md) for the complete command reference.
+
 This is a reviewable MVP. It binds only to `127.0.0.1`, requires a local bearer token, runs the Copilot SDK in `mode: "empty"`, and defaults to read-only workspace tools.
 
 ## Prerequisites
