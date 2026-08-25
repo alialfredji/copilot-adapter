@@ -26,8 +26,7 @@
     "node": ">=22.12"
   },
   "bin": {
-    "copilot-adapter": "dist/cli.js",
-    "copilot-harness": "dist/cli.js"
+    "copilot-adapter": "dist/cli.js"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -6,9 +6,7 @@ Install the published package once:
 npm install --global @alialf/copilot-adapter
 ```
 
-The primary command is `copilot-adapter`. The legacy `copilot-harness` alias is
-also installed. For source development, run `npm ci`, `npm run build`, and `npm
-link` from a clone of the repository.
+All commands use the `copilot-adapter` executable.
 
 ## Install and authenticate
 
@@ -205,54 +203,10 @@ Configure Claude Desktop with the printed gateway fields:
 5. Select a static API key with the `Bearer` scheme.
 6. Paste the output from `copilot-adapter token`.
 
-## Backup and rollback verification
+## Restoring client configuration
 
-For a configuration such as `~/.claude/settings.json`, setup creates:
-
-```text
-~/.claude/settings.json.copilot-harness.backup
-~/.claude/settings.json.copilot-harness.backup.meta.json
-```
-
-The first is an exact, readable copy of the original file. The sidecar stores
-only whether the original existed and its file mode. `--remove` restores the
-snapshot even when the managed file changed, then consumes both backup files.
-
-Verify rollback:
-
-```bash
-copilot-adapter setup claude-cli
-shasum -a 256 ~/.claude/settings.json.copilot-harness.backup
-# Add a harmless blank line to ~/.claude/settings.json.
-copilot-adapter setup claude-cli --remove
-shasum -a 256 ~/.claude/settings.json
-```
-
-The two hashes should match.
-
-## Development and verification
-
-```bash
-npm run dev
-npm run start
-npm run build
-npm run typecheck
-npm run lint
-npm run fmt
-npm run fmt:check
-npm test
-npm run test:watch
-```
-
-Run the full release-style verification:
-
-```bash
-npm run fmt:check
-npm run typecheck
-npm run lint
-npm test
-npm run build
-```
+Setup commands preserve the previous client configuration. Run the matching
+command with `--remove` to restore it.
 
 ## Discover command-specific options
 

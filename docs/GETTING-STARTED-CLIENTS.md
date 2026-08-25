@@ -1,281 +1,140 @@
-# Getting Started by Client
+# Client setup
 
-This guide covers every supported surface:
+Install and start the adapter once, then follow the section for the client you
+use. You do not need to configure every client.
 
-| Product | Terminal | Desktop | VS Code |
-| --- | --- | --- | --- |
-| Codex | Codex CLI | Codex Desktop | Codex extension |
-| Claude | Claude Code CLI | Claude Desktop Code tab | Claude Code extension |
-
-Choose the section you need. You do not need to configure every client.
-
-## 1. One-time adapter installation
+## Install and start
 
 ```bash
-node --version          # Requires Node.js 22.12+
-gh auth status          # Run `gh auth login` if needed
+node --version
+gh auth status
 npm install --global @alialf/copilot-adapter
 copilot-adapter doctor
 ```
 
-Requirements:
+Node.js 22.12 or newer is required. If GitHub CLI is not authenticated, run
+`gh auth login`.
 
-- A Copilot Business or Enterprise seat
-- Copilot CLI enabled by the GitHub organization
-- Codex or Claude installed for the surface you want to use
-
-For source development instead, clone the repository, run `npm ci`, `npm run
-build`, and `npm link`.
-
-## 2. Start the adapter for your project
-
-Open a terminal in the project you want the client to access:
+Start the adapter from the project you want the client to access:
 
 ```bash
 cd /path/to/your/project
-copilot-adapter start \
-  --cwd "$PWD" \
-  --port 4141 \
-  --policy workspace-write
+copilot-adapter start --cwd "$PWD" --policy read-only
 ```
 
-Keep this terminal running. In a second terminal, verify the connection and
-available models:
+Keep the adapter running. Use `--policy workspace-write` if the client should
+be allowed to edit files. In another terminal, verify the connection:
 
 ```bash
 copilot-adapter status --models
 ```
 
-Use `--policy read-only` instead if you do not want the adapter to edit files.
+## Codex CLI
 
----
-
-## Codex in the terminal
-
-### Configure
+Configure and start Codex:
 
 ```bash
 copilot-adapter setup codex --scope profile
-```
-
-### Start
-
-From the same project passed to `--cwd`:
-
-```bash
 codex --profile copilot
 ```
 
-### Verify and use
-
-Inside Codex:
-
-```text
-/model
-/reasoning
-```
-
-Select any model and reasoning level advertised by the Copilot model catalog,
-then send a test prompt. Switching does not require restarting the adapter.
-
-### Undo
+Use `/model` and `/reasoning` inside Codex. To remove the profile:
 
 ```bash
 copilot-adapter setup codex --scope profile --remove
 ```
 
----
+## Codex Desktop and VS Code
 
-## Codex Desktop app
-
-### Configure
+Codex Desktop and the Codex VS Code extension share the global configuration:
 
 ```bash
 copilot-adapter setup codex --scope global
 ```
 
-### Start
+Restart Codex Desktop or reload VS Code. Open the same project passed to
+`--cwd`, start a local task, and choose a model from the picker. Cloud tasks
+cannot reach a localhost adapter.
 
-1. Fully restart Codex Desktop.
-2. Create or open a **local** task.
-3. Open the same project folder passed to the adapter with `--cwd`.
-4. Open the model picker and select a Copilot catalog model.
-5. Select an available reasoning level and send a test prompt.
-
-The adapter must remain running. Cloud tasks cannot reach `127.0.0.1`.
-
-### Undo
+To remove the configuration:
 
 ```bash
 copilot-adapter setup codex --scope global --remove
 ```
 
-Restart Codex Desktop after removal.
+Restart or reload the client afterward.
 
----
+## Claude Code CLI
 
-## Codex in VS Code
-
-### Configure
-
-Codex Desktop and the Codex VS Code extension use the same global setup:
-
-```bash
-copilot-adapter setup codex --scope global
-```
-
-### Start
-
-1. Open the same project folder passed to `--cwd` in VS Code.
-2. Reload the VS Code window.
-3. Open the Codex extension.
-4. Start a local task.
-5. Use its model picker to select a Copilot catalog model and reasoning level.
-6. Send a test prompt.
-
-### Undo
-
-```bash
-copilot-adapter setup codex --scope global --remove
-```
-
-Reload VS Code after removal.
-
----
-
-## Claude Code in the terminal
-
-### Configure
+Configure and start Claude Code:
 
 ```bash
 copilot-adapter setup claude-cli
-```
-
-### Start
-
-From the same project passed to `--cwd`:
-
-```bash
 claude
 ```
 
-### Verify and use
+Run `/status` and confirm it shows `http://127.0.0.1:4141`. Use `/model` and
+`/effort` to change settings. Only compatible Claude-family Copilot models are
+shown.
 
-Inside Claude Code:
-
-```text
-/status
-/model
-/effort
-```
-
-`/status` should show `http://127.0.0.1:4141`. Use `/model` and `/effort` to
-switch without restarting the adapter. Claude surfaces only compatible
-Claude/Anthropic-family Copilot models.
-
-### Undo
+To restore the previous Claude Code configuration:
 
 ```bash
 copilot-adapter setup claude-cli --remove
 ```
 
----
+## Claude Code for VS Code
 
-## Claude Desktop app
+```bash
+copilot-adapter setup claude-vscode
+```
 
-This works in Claude Desktop's **Code tab**, not regular Chat or Cowork.
+Reload VS Code, open the same project passed to `--cwd`, and use `/status`,
+`/model`, and `/effort` in the Claude Code extension.
 
-### Print the connection values
+To restore the previous extension configuration:
+
+```bash
+copilot-adapter setup claude-vscode --remove
+```
+
+Reload VS Code afterward.
+
+## Claude Desktop Code tab
+
+Claude Desktop requires manual gateway setup:
 
 ```bash
 copilot-adapter setup claude-desktop
 copilot-adapter token
 ```
 
-### Configure Claude Desktop
+Then:
 
-1. Open Help → Troubleshooting → Enable Developer Mode.
-2. Open Developer → Configure Third-Party Inference.
-3. Set Provider to `Gateway`.
-4. Set Base URL to `http://127.0.0.1:4141` without `/v1`.
-5. Set Credential kind to `Static API key`.
-6. Set Auth scheme to `Bearer`.
-7. Paste the output from `copilot-adapter token` as the API key.
-8. Open the **Code** tab.
-9. Select the same project folder passed to `--cwd`.
-10. Choose a discovered Claude-family model and send a test prompt.
+1. Open **Help → Troubleshooting** and enable Developer Mode.
+2. Open **Developer → Configure Third-Party Inference**.
+3. Choose `Gateway`.
+4. Set the base URL to `http://127.0.0.1:4141` without `/v1`.
+5. Choose `Static API key` and the `Bearer` auth scheme.
+6. Paste the output of `copilot-adapter token` as the API key.
+7. Open the Code tab and select the same project passed to `--cwd`.
 
-The adapter must remain running. `setup claude-desktop` only prints values; it
-does not edit Claude Desktop files.
+This applies to the Code tab, not regular Chat or Cowork. Remove the gateway
+from Claude Desktop's Developer settings to undo the setup.
 
-### Undo
+## Refresh available models
 
-Remove or disable the Third-Party Inference gateway in Claude Desktop's
-Developer settings.
-
----
-
-## Claude Code in VS Code
-
-### Configure
-
-```bash
-copilot-adapter setup claude-vscode
-```
-
-### Start
-
-1. Open the same project folder passed to `--cwd` in VS Code.
-2. Reload the VS Code window.
-3. Open the Claude Code extension.
-4. Start a local session and run:
-
-```text
-/status
-/model
-/effort
-```
-
-5. Confirm `/status` shows `http://127.0.0.1:4141`.
-6. Select a model and effort level, then send a test prompt.
-
-### Undo
-
-```bash
-copilot-adapter setup claude-vscode --remove
-```
-
-Reload VS Code after removal.
-
----
-
-## Refresh models
-
-After the GitHub organization changes its Copilot model policy:
+If your organization changes its Copilot model policy, run:
 
 ```bash
 copilot-adapter models sync
 ```
 
-Restart Codex or reload its VS Code extension afterward. Claude discovers its
-compatible models through the running adapter.
-
-## Backups
-
-File-based setup commands preserve the exact original configuration beside the
-managed file:
-
-```text
-<configuration>.copilot-harness.backup
-<configuration>.copilot-harness.backup.meta.json
-```
-
-`--remove` restores the original even if the managed configuration changed.
-Claude Desktop is configured manually in its UI, so it does not create these
-backup files.
+Restart Codex or reload its VS Code extension afterward. The running adapter
+does not need to be restarted.
 
 ## Stop the adapter
 
 Press `Ctrl+C` in the terminal running `copilot-adapter start`.
 
-For every available option and maintenance command, see [COMMANDS.md](COMMANDS.md).
+See the [command reference](COMMANDS.md) for every option.

@@ -1,8 +1,8 @@
-# Publishing `@alialf/copilot-adapter` to npm
+# Publishing
 
-The package is configured as a public scoped package. The first release is
-published manually; later releases use npm trusted publishing from GitHub
-Actions with short-lived OIDC credentials and automatic provenance.
+`@alialf/copilot-adapter` is a public scoped npm package. The initial release
+must be published manually. Later releases use npm trusted publishing from
+GitHub Actions.
 
 ## Prerequisites
 
@@ -11,8 +11,7 @@ Actions with short-lived OIDC credentials and automatic provenance.
 - Use Node.js 22.12 or newer locally.
 - Push from `https://github.com/alialfredji/copilot-adapter`.
 
-This machine was not authenticated with npm when the repository was prepared.
-Log in before the first release:
+Log in before the initial release:
 
 ```bash
 npm login
@@ -20,15 +19,6 @@ npm whoami
 ```
 
 `npm whoami` must print an account that can publish under `@alialf`.
-
-If npm reports root-owned files in its default cache, avoid publishing with
-`sudo`. Use a temporary user-owned cache instead:
-
-```bash
-mkdir -p /tmp/copilot-adapter-npm-cache
-npm --cache /tmp/copilot-adapter-npm-cache login
-npm --cache /tmp/copilot-adapter-npm-cache whoami
-```
 
 ## 1. Review the release
 
@@ -45,17 +35,14 @@ Confirm the tarball preview contains only the intended runtime files, README,
 license, and documentation. Never publish credentials, `.env` files, test
 fixtures containing secrets, or personal configuration.
 
-## 2. Publish version 0.1.0 manually
+## 2. Publish the initial version
 
 The first publish creates the npm package so its trusted publisher can then be
 configured:
 
 ```bash
-npm --cache /tmp/copilot-adapter-npm-cache publish --access public
+npm publish --access public
 ```
-
-If the default npm cache works normally, plain `npm login` and `npm publish
---access public` are equivalent.
 
 npm requires either publishing 2FA or a granular token allowed to bypass 2FA.
 Enter the one-time password if prompted.
